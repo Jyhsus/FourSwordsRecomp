@@ -1,0 +1,59 @@
+# ── Copyrighted inputs: NEVER commit ─────────────────────────────────
+# Cartridge ROMs, GBA BIOS images and DSi dumps belong to their owners.
+roms/
+*.gba
+*.GBA
+*.bin
+*.nds
+*.srl
+*.app
+bios.cfg
+rom.cfg
+
+# ── Saves ─────────────────────────────────────────────────────────────
+saves/
+*.sav
+*.sa4
+*.srm
+*.eep
+
+# ── Generated code (derived from the ROM; regenerate locally) ────────
+generated/*
+!generated/README.md
+
+# ── Build output ──────────────────────────────────────────────────────
+build/
+build-*/
+out/
+*.obj
+*.o
+*.pdb
+*.ilk
+*.exe
+*.dll
+*.lib
+*.a
+*.tlog
+recomp_cache/
+recomp_coverage_*.json
+recomp_master_misses_*.toml.frag
+FourSwordsRecomp-v*.zip
+
+# ── Diagnostics ───────────────────────────────────────────────────────
+_triage/
+*.log
+*.bmp
+*.rgb
+diagnostics/
+
+# ── Local overrides / IDE / OS ───────────────────────────────────────
+*.local.toml
+*.local.ini
+.vscode/
+.idea/
+.vs/
+*.vcxproj.user
+.DS_Store
+Thumbs.db
+__pycache__/
+*.pyc

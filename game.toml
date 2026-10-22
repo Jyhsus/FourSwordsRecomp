@@ -1,0 +1,61 @@
+# game.toml — The Legend of Zelda: A Link to the Past & Four Swords (USA)
+#
+# FourSwordsRecomp only targets the Four Swords half of this cartridge, but
+# the recompiler works on the whole, unmodified ROM image (AZLE). The A Link
+# to the Past half is skipped at runtime (see docs/DESIGN.md, "Boot straight
+# into Four Swords"), never removed from the player's ROM.
+#
+# Values here are verified against the player's dump. Do not copy addresses
+# from other games: they describe a different binary.
+
+[game]
+name       = "The Legend of Zelda: Four Swords"
+short_name = "four_swords"
+
+[program]
+name           = "The Legend of Zelda: A Link to the Past & Four Swords (USA)"
+id             = "AZLE"
+load_address   = 0x08000000
+size           = 0x00800000
+entry_pc       = 0x08000000
+speculative_literal_harvest = false
+# Code occupies ~0x08000000-0x0813FFFF; everything above is data (graphics,
+# maps, audio). A whole-ROM AOT scan treats that data as code and needs >6 GB
+# of RAM, so the AOT pointer-table scan is left off for now: discovery starts
+# from the entry point, and anything it misses is interpreted on first use and
+# cached natively by the runtime. Re-enable once seeds/symbols exist:
+# aot_scan_start = 0x08000000
+# aot_scan_end   = 0x08140000
+static_resume_all = true
+codegen_shards = 32
+
+[identity]
+sha1 = "a272055abbbf6c26b0cd54c87395d01699589161"
+md5  = "3287ca66e5cc285a9fe3a922051e84c6"
+
+[bios]
+path = "gbarecomp/bios/gba_bios.bin"
+sha1 = "300c20df6731a33952ded8c436f7f186d25d3492"
+hle  = false
+
+[rom]
+path = "roms/zelda_lttp_four_swords_usa.gba"
+sha1 = "a272055abbbf6c26b0cd54c87395d01699589161"
+
+# Library string EEPROM_V122 at 0x08427298; the dump's save is 8 KiB,
+# i.e. a 64 Kbit EEPROM.
+[save]
+type = "eeprom"
+size = 8192
+path = "saves/four_swords_usa.sav"
+
+[runtime]
+debug_port   = 19890
+window_title = "FourSwordsRecomp"
+
+[video]
+screen = "frontlit"
+widescreen = 0
+
+[audio]
+shadow = false
