@@ -249,3 +249,137 @@ enlazado en `CMakeLists.txt`:
 4. **M4 — Un jugador estilo Anniversary** (seguir, cambiar, silbato).
 5. **M5 — En línea 2 jugadores**, luego **3–4**.
 6. **M6 — Investigación del contenido Anniversary** (viable / no viable).
+
+Entre el M2 y el M3 van los puntos de la sección 8: partidas en 3 ranuras, sin
+BIOS para el usuario e interfaz estilo Ship of Harkinian.
+
+## 8. Plan de trabajo después del M2 (por orden de prioridad)
+
+Estos tres puntos van antes del M3, en este orden.
+
+### 8.1 Partidas en 3 ranuras 🔧 (prioridad)
+
+**Problema:** al salir de Four Swords el juego vuelve al modo 6 ("CHOOSE A
+GAME"), y el hook de arranque directo (sección 2, ahora en el manejador del
+modo 6, `0x0803074C`) lo devuelve a Four Swords. No hay forma de salir.
+
+**Modelo decidido:** un solo `.sav`. Las 3 ranuras originales del cartucho son
+las 3 partidas del launcher. No hay formato de guardado propio, y el `.sav`
+sigue sirviendo en cualquier emulador.
+
+Ingeniería inversa necesaria:
+
+1. Estructura de las ranuras en la EEPROM (64 Kbit, 8 KiB): posición y tamaño
+   de cada ranura, el nombre, la marca de "ranura en uso" y el checksum
+   (algoritmo y rango que cubre).
+2. La rutina que carga una ranura en la selección de archivo (modo 8), para
+   aplicar la elección del launcher sin mostrar "CHOOSE A FILE".
+3. El modo que pide Four Swords al salir, para que "Salir al menú" vuelva al
+   launcher en vez de entrar en bucle.
+4. El nombre de la partida: longitud máxima y caracteres permitidos (la tabla
+   de caracteres del propio juego).
+
+Resultado:
+
+* El launcher muestra las 3 ranuras con su nombre y permite crearlas,
+  renombrarlas y borrarlas. El nombre del launcher **es** el nombre de la
+  partida dentro del juego.
+* Al elegir una ranura el juego entra directo a Four Swords, sin "CHOOSE A FILE".
+* "Salir al menú" vuelve al launcher.
+
+**Hallazgos (23 oct 2026):**
+
+*Estructura de la EEPROM.* El `.sav` guarda cada bloque de 8 bytes de la
+EEPROM con los bytes invertidos; los offsets de abajo están en el orden del
+juego. Una tabla de descriptores en `0x0814C654` (8 entradas de 12 bytes:
+tamaño, cabecera A, cabecera B, datos A, datos B) gobierna todos los accesos.
+Cada copia se escribe en su offset y otra vez en `+0x1000`; la copia B solo se
+usa si falla la escritura de la A.
+
+| Entrada | Tamaño | Cabecera A / B | Datos A / B | Contenido |
+|---|---|---|---|---|
+| 0–2 | `0x480` | `0x40`, `0x50`, `0x60` | `0x100`, `0x600`, `0xB00` | parte de A Link to the Past de las partidas 1–3 |
+| 3 | `0x20` | — | `0x000` | texto de firma del cartucho |
+| 4–6 | `0x40` | `0x70/0x80`, `0x90/0xA0`, `0xB0/0xC0` | `0x580/0x5C0`, `0xA80/0xAC0`, `0xF80/0xFC0` | cabeceras de partida de Four Swords |
+| 7 | `0x10` | `0x20/0x30` | `0x0E0/0x0F0` | bloque de sistema, se carga en `0x03000000` |
+
+Una cabecera de estado es `u16 suma, u16 -suma, u32 firma`: `S4FT` = válida,
+`INIT` = vacía, `DelF` = borrada (estas dos con `0xFFFF 0xFFFF`). El checksum
+(`0x080679B0`) suma cada `u16` XOR el número de bytes que quedan, primero
+sobre la firma y luego sobre los datos. Cabecera de partida: `+0x04` = `0x11`,
+`+0x08` nombre (6 bytes, rellenos con ceros), `+0x24`/`+0x25` = 1 en una
+partida nueva, `+0x3F` = 3. Una ranura está en uso si carga y su nombre no
+está vacío (`0x080111F8`). Crear una partida deja la parte de A Link to the
+Past en `INIT`; borrarla escribe `DelF` en las dos partes y no toca los datos.
+Los dos juegos comparten las 3 partidas, así que borrar una también borra su
+progreso de A Link to the Past, igual que en el cartucho. Código:
+`0x08067940`–`0x080681D0` (EEPROM), `0x080111F8`–`0x08011476` (ranuras; copia
+en RAM de las cabeceras en `0x0200B250 + i*0x40`).
+
+*Nombre.* Como máximo 6 caracteres, en Windows-1252: `A–Z a–z 0–9`, espacio,
+`' - : ! ? , .`, `À Â Ä Æ Ç È É Ê Ë Ì Î Ï Ð Ñ Ò Ô Ö Œ Ù Û Ü` y sus minúsculas
+(sacado tecleando cada casilla de "ENTER A NAME").
+
+*Bloque de sistema (`0x03000000`, entrada 7).* `S4FT`, `[4]` = partida
+actual, `[5]`–`[8]` opciones, `[9]` longitud del nombre y `[10..15]` el nombre
+que usa Four Swords. Tras un reinicio por software con `GoGameS` en `[9]`,
+`AgbMain` (`0x08068108`) se salta la selección de archivo y entra directamente
+en el modo 6 (`0x0803072C`). El sub-estado 0 del modo 6 (`0x080308F8`) recarga
+la partida `[4]` (`0x08011418`) y copia su nombre al bloque (`0x080681D0`).
+
+*Implementado.* `src/fs_save.{h,cpp}` lee y edita el `.sav` igual que el juego
+(probado con `tests/fs_save_test.cpp` contra partidas escritas por el juego;
+`Image::blank()` coincide byte a byte con un `.sav` de primer arranque y toma
+los textos fijos de la ROM del jugador). `--slot 1-3` arranca una partida
+directamente: un hook en el reinicio de pantalla `0x0800BED8`, filtrado a la
+llamada de AgbMain, pone `[4]` y los mismos bytes de modo que `0x0803072C`. El
+hook del modo 6 ahora deja correr el sub-estado 0 antes de iniciar Four
+Swords; hasta ahora, si se saltaba la selección de archivo, Four Swords
+arrancaba con el nombre por defecto "LINK". Comprobado: `--slot 2` llega a la
+intro de Four Swords en el frame 300 (por la selección de archivo tardaba
+~900) con el nombre correcto en el bloque de sistema, y al lobby en el frame
+20000 con la pila de retornos a 0, tanto con `--slot` como por la selección de
+archivo.
+
+*Salida.* Four Swords sale por el sub-estado 7 (`0x08030018`) de la tabla de
+`0x084278C0` (usada en `0x0802FB20`; el sub-estado 6 vuelve al modo 9): espera
+al fundido, reinicia la pantalla y llama a `set_game_mode(6)` (`0x0803003E`).
+Con una sola GBA no se puede salir del lobby, así que este camino necesita el
+M3 para probarse. Volver al launcher requiere una llamada del motor que
+termine `run_game()` de forma limpia (el `.sav` se escribe cuando paran las
+escrituras y al cerrar). GBARecomp aún no la ofrece: trabajo para upstream.
+
+**Falta:** la pantalla del launcher (lista, crear, renombrar, borrar, jugar),
+el hook de salida y la petición de cierre en upstream.
+
+### 8.2 Sin BIOS para el usuario 📋
+
+Ahora el jugador tiene que aportar la BIOS de GBA. GBARecomp ya tiene HLE
+opcional de las SWI de cálculo, copia y descompresión
+(`src/runtime/bios_hle.cpp`) y un salto del arranque (`bios_hle_boot_skip`),
+pero `IntrWait` (`0x04`), `VBlankIntrWait` (`0x05`) y el vector de
+interrupciones (`0x18`) siguen ejecutándose en la BIOS recompilada, así que
+todavía hay que enlazarla.
+
+Plan:
+
+1. HLE de `IntrWait` (`0x04`) y `VBlankIntrWait` (`0x05`): esperar hasta que
+   aparezcan los bits pedidos en `0x03007FF8` y luego borrarlos, como hace la
+   BIOS real.
+2. HLE del vector de interrupciones: guardar registros, llamar al manejador de
+   `0x03007FFC` y volver, sin código de la BIOS.
+3. HLE del arranque (el salto que ya existe) y poder iniciar **sin ningún
+   archivo de BIOS**.
+4. Dos versiones, elegidas al compilar (política de HLE de GBARecomp):
+   **desarrollo** con la BIOS real como referencia, y **pública** solo con HLE.
+5. Validar frame a frame contra la BIOS real (comparando savestates y
+   framebuffer en el arranque y en el lobby de Four Swords).
+6. Prepararlo como contribución a GBARecomp: son servicios del motor, no
+   código propio del juego.
+
+### 8.3 Interfaz estilo Ship of Harkinian 📋
+
+* Una pantalla propia al abrir: **Jugar / Multijugador / Opciones / Salir**.
+* Una barra de menú dentro del juego que se abre con **F1**.
+* Se mantiene la lista de salas; el inicio de sesión con Discord sigue siendo opcional.
+* Solo arte propio (nada de recursos de Nintendo, ver sección 0).

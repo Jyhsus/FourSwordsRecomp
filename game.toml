@@ -152,6 +152,13 @@ addr = 0x0803074C
 mode = "thumb"
 note = "choose-game mode handler; FSR direct boot into Four Swords"
 
+# Screen reset. src/fs_boot.cpp uses AgbMain's call (return 0x0800B0CE), made
+# right after the system block is loaded, to pick the file slot for --slot.
+[[mod_function_hook]]
+addr = 0x0800BED8
+mode = "thumb"
+note = "screen reset; FSR boot into a file slot"
+
 [runtime]
 debug_port   = 19890
 window_title = "FourSwordsRecomp"

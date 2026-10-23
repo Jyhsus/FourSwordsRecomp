@@ -243,3 +243,132 @@ wired in `CMakeLists.txt`:
 4. **M4 — Anniversary-style single player** (follow, swap, whistle).
 5. **M5 — Online 2 players**, then **3–4**.
 6. **M6 — Research on Anniversary content** (go / no-go).
+
+Between M2 and M3 come the items in section 8: saves in 3 slots, no BIOS for
+the player, and the Ship of Harkinian-style interface.
+
+## 8. Work plan after M2 (priority order)
+
+These three items come before M3, in this order.
+
+### 8.1 Saves in 3 slots 🔧 (priority)
+
+**Problem:** when the player leaves Four Swords, the game goes back to mode 6
+("CHOOSE A GAME"), and the direct-boot hook (section 2, now on the mode-6
+handler `0x0803074C`) sends it straight back into Four Swords. There is no way
+out.
+
+**Decided model:** one `.sav` file. The cartridge's 3 original file slots are
+the launcher's 3 saves. No extra save format, and a `.sav` stays usable in any
+emulator.
+
+Reverse engineering needed:
+
+1. Layout of the slots in the EEPROM (64 Kbit, 8 KiB): offset and size of each
+   slot, the file name, the "slot in use" flag and the checksum (algorithm and
+   range covered).
+2. The routine that loads a slot in file select (mode 8), so the launcher's
+   choice can be applied without showing "CHOOSE A FILE".
+3. The mode Four Swords asks for when it exits, so "Quit to menu" can return to
+   the launcher instead of looping.
+4. The file name: maximum length and allowed characters (the game's own
+   character table).
+
+Result:
+
+* The launcher shows the 3 slots with their names, and can create, rename and
+  delete them. The launcher name **is** the in-game file name.
+* Picking a slot boots straight into Four Swords, with no "CHOOSE A FILE".
+* "Quit to menu" goes back to the launcher.
+
+**Findings (23 Oct 2026):**
+
+*EEPROM layout.* The `.sav` stores each 8-byte EEPROM block byte-reversed; the
+offsets below are in game order. A descriptor table at `0x0814C654` (8
+entries, 12 bytes: size, status header A, header B, data A, data B) drives
+every access. Each copy is written at its offset and again at `+0x1000`;
+copy B is used only when writing A fails.
+
+| Entry | Size | Header A / B | Data A / B | Content |
+|---|---|---|---|---|
+| 0–2 | `0x480` | `0x40`, `0x50`, `0x60` | `0x100`, `0x600`, `0xB00` | A Link to the Past part of files 1–3 |
+| 3 | `0x20` | — | `0x000` | cartridge signature string |
+| 4–6 | `0x40` | `0x70/0x80`, `0x90/0xA0`, `0xB0/0xC0` | `0x580/0x5C0`, `0xA80/0xAC0`, `0xF80/0xFC0` | Four Swords file headers |
+| 7 | `0x10` | `0x20/0x30` | `0x0E0/0x0F0` | system block, loaded to `0x03000000` |
+
+A status header is `u16 sum, u16 -sum, u32 signature`: `S4FT` = valid, `INIT`
+= empty, `DelF` = erased (both with `0xFFFF 0xFFFF`). The checksum
+(`0x080679B0`) adds every `u16` XOR the number of bytes left, over the
+signature and then the data. File header: `+0x04` = `0x11`, `+0x08` name (6
+bytes, zero-padded), `+0x24`/`+0x25` = 1 on a new file, `+0x3F` = 3. A slot is
+in use when it loads and its name is not empty (`0x080111F8`). Creating a file
+resets the A Link to the Past part to `INIT`; erasing writes `DelF` to both
+parts and leaves the data. The two games share the 3 files, so erasing one
+erases its A Link to the Past progress too, as on the cartridge. Code:
+`0x08067940`–`0x080681D0` (EEPROM), `0x080111F8`–`0x08011476` (slots; RAM
+copy of the headers at `0x0200B250 + i*0x40`).
+
+*Name.* At most 6 characters, Windows-1252: `A–Z a–z 0–9`, space,
+`' - : ! ? , .`, `À Â Ä Æ Ç È É Ê Ë Ì Î Ï Ð Ñ Ò Ô Ö Œ Ù Û Ü` and their
+lower-case forms (mapped by typing every cell of "ENTER A NAME").
+
+*System block (`0x03000000`, entry 7).* `S4FT`, `[4]` = current file,
+`[5]`–`[8]` settings, `[9]` name length and `[10..15]` the name Four Swords
+uses. After a soft reset with `GoGameS` at `[9]`, `AgbMain` (`0x08068108`)
+skips file select and enters mode 6 directly (`0x0803072C`). Mode 6
+sub-state 0 (`0x080308F8`) reloads file `[4]` (`0x08011418`) and copies its
+name into the block (`0x080681D0`).
+
+*Implemented.* `src/fs_save.{h,cpp}` reads and edits the `.sav` exactly like
+the game (tested by `tests/fs_save_test.cpp` against saves the game wrote;
+`Image::blank()` matches a first-boot save byte for byte, taking the fixed
+strings from the player's ROM). `--slot 1-3` boots a file directly: a hook on
+the screen reset `0x0800BED8`, filtered to AgbMain's call, sets `[4]` and the
+same mode bytes as `0x0803072C`. The mode-6 hook now lets sub-state 0 run
+before starting Four Swords; until now Four Swords started with the default
+name "LINK" when file select was skipped. Checked: `--slot 2` reaches the Four
+Swords intro at frame 300 (file select took ~900) with the right name in the
+system block, and the lobby at frame 20000 with call-stack depth 0, on both
+the `--slot` and the file-select paths.
+
+*Exit.* Four Swords leaves through sub-state 7 (`0x08030018`) of the table at
+`0x084278C0` (used at `0x0802FB20`; sub-state 6 returns to mode 9): it waits
+for the fade, resets the screen and calls `set_game_mode(6)` (`0x0803003E`).
+With one GBA the lobby cannot be left, so this path needs M3 to be exercised.
+Returning to the launcher needs an engine call that ends `run_game()` cleanly
+(the `.sav` is flushed when writes settle and on shutdown). GBARecomp does not
+expose one yet: upstream work.
+
+**Still to do:** the launcher screen (list, create, rename, erase, play), the
+exit hook and the upstream quit request.
+
+### 8.2 No BIOS needed by the player 📋
+
+Today the player must supply the GBA BIOS. GBARecomp already has opt-in HLE for
+the math, copy and decompression SWIs (`src/runtime/bios_hle.cpp`) and a boot
+skip (`bios_hle_boot_skip`), but `IntrWait` (`0x04`), `VBlankIntrWait`
+(`0x05`) and the IRQ vector (`0x18`) still run in the recompiled BIOS, so it
+must still be linked.
+
+Plan:
+
+1. HLE of `IntrWait` (`0x04`) and `VBlankIntrWait` (`0x05`): halt until the
+   requested interrupt flags appear in `0x03007FF8`, then clear them, as the
+   real BIOS does.
+2. HLE of the interrupt vector: save registers, call the handler pointer at
+   `0x03007FFC`, return, without BIOS code.
+3. HLE boot (the existing boot skip) and starting with **no BIOS file at all**.
+4. Two builds, selected at build time (the GBARecomp HLE policy): a
+   **development** build with the real BIOS, used as the reference, and a
+   **public** build with HLE only.
+5. Validate frame by frame against the real BIOS (savestate and framebuffer
+   comparisons over the boot and the Four Swords lobby).
+6. Package it as a contribution to GBARecomp: these are engine services, not
+   game-specific code.
+
+### 8.3 Ship of Harkinian-style interface 📋
+
+* An own start screen: **Play / Multiplayer / Options / Quit**.
+* An in-game menu bar opened with **F1**.
+* The room list stays; Discord sign-in stays optional.
+* Original art only (no Nintendo assets, see section 0).

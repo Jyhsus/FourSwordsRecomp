@@ -57,6 +57,7 @@ endif()
 add_executable(FourSwordsRecomp
     src/main.cpp
     src/fs_boot.cpp
+    src/fs_save.cpp
     ${GAME_GENERATED_SOURCES})
 
 # Keep the big generated shards cheap to compile.
@@ -122,6 +123,14 @@ if(GBAGAME_RECOMP_UI)
     target_link_libraries(FourSwordsRecomp PRIVATE game_launcher_ui)
     set_property(SOURCE src/main.cpp APPEND PROPERTY
         COMPILE_DEFINITIONS GBAGAME_RECOMP_UI)
+endif()
+
+# Host-side save model tests (no ROM needed): ctest --test-dir build
+include(CTest)
+if(BUILD_TESTING)
+    add_executable(fs_save_test tests/fs_save_test.cpp src/fs_save.cpp)
+    target_include_directories(fs_save_test PRIVATE src)
+    add_test(NAME fs_save COMMAND fs_save_test)
 endif()
 
 if(MSVC)

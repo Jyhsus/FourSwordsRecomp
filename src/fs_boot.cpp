@@ -1,9 +1,11 @@
 #include "fs_boot.h"
 
+#include <atomic>
 #include <cstdlib>
 
 #include "mod_function_hooks.h"
 #include "mod_runtime.h"
+#include "runtime_arm.h"
 
 // Boot straight into Four Swords (M2).
 //
@@ -17,10 +19,21 @@
 // initialises Four Swords and calls set_game_mode(9). It reads no arguments.
 //
 // The hook replaces the mode-6 handler (0x0803074C) with a tail call to
-// start_four_swords, so every path into mode 6 starts Four Swords on its first
-// frame, from the same main-loop context the stock code uses. LR still holds
-// the main loop's return address. The stock screen stays reachable with
+// start_four_swords, so every path into mode 6 starts Four Swords, from the
+// same main-loop context the stock code uses. LR still holds the main loop's
+// return address. Sub-state 0 (0x080308F8) still runs first: it reloads the
+// current file from EEPROM (0x08011418) and copies its name into the system
+// block (0x080681D0), which Four Swords uses; file select also does that, but
+// --slot skips file select. The stock screen stays reachable with
 // FSR_STOCK_MENU=1 for validation.
+//
+// Boot into a file slot (section 8.1). AgbMain loads the 16-byte system block
+// (EEPROM entry 7) to 0x03000000; byte 4 is the current file. After a soft
+// reset that left "GoGameS" at 0x03000009 (0x08068108), it skips file select
+// and enters mode 6 directly through 0x0803072C. --slot reproduces that path
+// on a cold boot: at AgbMain's call to the screen reset 0x0800BED8, right
+// after the system block is loaded, it sets the file and the same mode bytes
+// 0x0803072C writes. The hook declines, so the screen reset still runs.
 
 namespace {
 
@@ -28,9 +41,32 @@ constexpr const char* kHookId = "fsr.direct_boot";
 constexpr std::uint32_t kChooseGameHandler = 0x0803074Cu;
 constexpr std::uint32_t kStartFourSwords = 0x08030E0Cu;
 
+constexpr const char* kSlotHookId = "fsr.boot_slot";
+constexpr std::uint32_t kScreenReset = 0x0800BED8u;
+constexpr std::uint32_t kAgbMainScreenResetReturn = 0x0800B0CEu;
+constexpr std::uint32_t kCurrentFile = 0x03000004u;
+constexpr std::uint32_t kGameMode = 0x03006D10u;
+constexpr std::uint32_t kGameSubState = 0x03005050u;
+constexpr std::uint32_t kModeAux = 0x03000BFCu;
+constexpr std::uint8_t kModeChooseGame = 6;
+
+std::atomic<int> g_boot_slot{-1};
+
 int on_choose_game(std::uint32_t /*addr*/, int /*thumb*/, ArmCpuState* cpu) {
+    if (bus_read_u8(kGameSubState) == 0) return 0;  // let sub-state 0 load the file
     cpu->R[15] = kStartFourSwords;
     return 1;
+}
+
+// Only AgbMain's call matches, so every virtual GBA gets it once per boot.
+int on_screen_reset(std::uint32_t /*addr*/, int /*thumb*/, ArmCpuState* cpu) {
+    const int slot = g_boot_slot.load(std::memory_order_relaxed);
+    if (slot < 0 || (cpu->R[14] & ~1u) != kAgbMainScreenResetReturn) return 0;
+    bus_write_u8(kCurrentFile, static_cast<std::uint8_t>(slot));
+    bus_write_u8(kGameMode, kModeChooseGame);
+    bus_write_u8(kGameSubState, 0);
+    bus_write_u8(kModeAux, 0);
+    return 0;
 }
 
 bool direct_boot_wanted() {
@@ -38,22 +74,29 @@ bool direct_boot_wanted() {
     return !(stock && *stock && *stock != '0');
 }
 
-void enable_direct_boot() {
+void enable_hooks() {
     gba_mod_set_function_hook_enabled(kHookId, direct_boot_wanted() ? 1 : 0);
+    gba_mod_set_function_hook_enabled(kSlotHookId, g_boot_slot.load() >= 0 ? 1 : 0);
 }
 
 // Mod activation disables every function hook and then runs reset callbacks,
-// so the hook is re-armed there as well as at startup.
+// so the hooks are re-armed there as well as at startup.
 const bool registered = [] {
     gba_mod_register_function_entry_plugin(kHookId, kChooseGameHandler, 1, &on_choose_game);
-    gba_mod_register_reset_callback(&enable_direct_boot);
-    enable_direct_boot();
+    gba_mod_register_function_entry_plugin(kSlotHookId, kScreenReset, 1, &on_screen_reset);
+    gba_mod_register_reset_callback(&enable_hooks);
+    enable_hooks();
     return true;
 }();
 
 }  // namespace
 
 namespace fsr {
+
+void set_boot_slot(int slot) {
+    g_boot_slot.store(slot >= 0 && slot < 3 ? slot : -1);
+    enable_hooks();
+}
 
 void setup_netplay_instance(gbarecomp::GbaInstance& /*instance*/) {
     // Every virtual GBA shares the generated code and therefore the hook

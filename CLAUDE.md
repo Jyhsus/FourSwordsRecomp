@@ -36,7 +36,8 @@ Windows (verified 22 Oct 2026, windowed): `gba_recompile` with MSVC (VS 2026 Bui
 - Long runs: `GBARECOMP_INPUT_REPLAY=<file>` (lines `frame,0xKEYINPUT`, value held until the next line) with `--frames N --dump-png --dump-state`. TCP `run_frames` stepping exposes bridge bugs that free running doesn't.
 - Self-heal bridge entered at a mid-function return address can run away (200M instructions, pc in BIOS IntrWait `0x348`) and abort. Cure: make that code static (seed the pointer table). Also seen: self-heal gcc overlays fail (`g_runtime_resume_pc` undeclared) and windowed `--frames` runs end with `terminate called without an active exception`. Both upstream.
 - Game modes: byte `0x03006D10`, table `0x0842731C`, setter `set_game_mode` `0x0800B5EC`; 8 = file select, 6 = CHOOSE A GAME, 9 = Four Swords, 13 = LttP. `start_four_swords` = `0x08030E0C`. Details in docs/DESIGN.md §2.
-- Save: 64 Kbit EEPROM (`EEPROM_V122` @ `0x08427298`).
+- Save: 64 Kbit EEPROM (`EEPROM_V122` @ `0x08427298`). The `.sav` stores each 8-byte block reversed. Slots, checksum, name charset (6 chars, cp1252) and the system block at `0x03000000` (`[4]` = current file): docs/DESIGN.md §8.1. Edit saves only through `src/fs_save.cpp` (`build/fs_save_test.exe` checks it). `--slot 1-3` boots a file directly. Test on a copied `.sav` via `--save-path`.
+- With one GBA the Four Swords lobby cannot be left (no key works); the exit path (sub-state 7 `0x08030018` → `set_game_mode(6)`) needs two GBAs.
 - Boot reaches the Nintendo/Capcom logos (frame ~300) and "CHOOSE A FILE" (frame ~900). The A Link to the Past / Four Swords choice comes **after** file select.
 - Interpreter misses are logged to `recomp_master_misses_AZLE.toml.frag`; review them before merging into `game.toml`.
 - Netplay: `src/main.cpp` sets `max_players = 4`. Every peer runs all virtual GBAs, and only inputs cross the network.
@@ -45,5 +46,6 @@ Windows (verified 22 Oct 2026, windowed): `gba_recompile` with MSVC (VS 2026 Bui
 ## Milestones (see docs/DESIGN.md)
 - M1 boot to file select ✅
 - **M2 ✅** (launcher toggle pending): `src/fs_boot.cpp` hooks the mode-6 handler `0x0803074C` (not `set_game_mode`, which misses the soft-reset inline entry at `0x0803072C`) and turns it into a tail call to `start_four_swords`. With one GBA it reaches the lobby ("Linking with other systems…", mode 9 sub 2) and is stable to frame 40000. Details in docs/DESIGN.md §2.
-- **M3 next:** IWRAM Thumb code `0x03006D18–0x03006E96` is still bridged (likely link/serial); find its ROM source and declare a `[[code_copy]]`.
+- **Before M3, docs/DESIGN.md §8 in order:** 8.1 saves in 3 slots (🔧: save model + `--slot` done; launcher screen, exit hook and an upstream `run_game` quit request left), 8.2 no BIOS (HLE), 8.3 Ship of Harkinian-style UI.
+- **M3:** IWRAM Thumb code `0x03006D18–0x03006E96` is still bridged (likely link/serial); find its ROM source and declare a `[[code_copy]]`.
 - M3 two local consoles over `GbaLinkHub` → M4 Anniversary-style single player → M5 online 2–4 → M6 DSi content research (may be impossible).
