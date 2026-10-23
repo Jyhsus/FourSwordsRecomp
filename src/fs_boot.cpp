@@ -5,6 +5,7 @@
 
 #include "mod_function_hooks.h"
 #include "mod_runtime.h"
+#include "runtime.h"
 #include "runtime_arm.h"
 
 // Boot straight into Four Swords (M2).
@@ -50,12 +51,34 @@ constexpr std::uint32_t kGameSubState = 0x03005050u;
 constexpr std::uint32_t kModeAux = 0x03000BFCu;
 constexpr std::uint8_t kModeChooseGame = 6;
 
+// Quitting Four Swords: mode 9 sub-state 2 (0x0802FAEC) dispatches the lobby
+// steps by 0x03000BFC through 0x084278C0; step 7 (0x08030018) waits until the
+// fade flag 0x03000520 clears, resets the screen and calls set_game_mode(6).
+constexpr const char* kExitHookId = "fsr.exit";
+constexpr std::uint32_t kFourSwordsExit = 0x08030018u;
+constexpr std::uint32_t kFadeBusy = 0x03000520u;
+
 std::atomic<int> g_boot_slot{-1};
 
 int on_choose_game(std::uint32_t /*addr*/, int /*thumb*/, ArmCpuState* cpu) {
     if (bus_read_u8(kGameSubState) == 0) return 0;  // let sub-state 0 load the file
     cpu->R[15] = kStartFourSwords;
     return 1;
+}
+
+// Declines in every case; the stock body still runs this frame.
+int on_four_swords_exit(std::uint32_t /*addr*/, int /*thumb*/, ArmCpuState* /*cpu*/) {
+    if (bus_read_u8(kFadeBusy) != 0) return 0;
+    if (g_boot_slot.load(std::memory_order_relaxed) >= 0) {
+        // Started from the launcher: end the session at the frame boundary;
+        // run_game() flushes the save on its way out.
+        gbarecomp::request_quit();
+    } else {
+        // No launcher to return to: show the stock "CHOOSE A GAME" instead of
+        // starting Four Swords again. Re-armed on the next reset.
+        gba_mod_set_function_hook_enabled(kHookId, 0);
+    }
+    return 0;
 }
 
 // Only AgbMain's call matches, so every virtual GBA gets it once per boot.
@@ -75,7 +98,9 @@ bool direct_boot_wanted() {
 }
 
 void enable_hooks() {
-    gba_mod_set_function_hook_enabled(kHookId, direct_boot_wanted() ? 1 : 0);
+    const bool direct = direct_boot_wanted();
+    gba_mod_set_function_hook_enabled(kHookId, direct ? 1 : 0);
+    gba_mod_set_function_hook_enabled(kExitHookId, direct ? 1 : 0);
     gba_mod_set_function_hook_enabled(kSlotHookId, g_boot_slot.load() >= 0 ? 1 : 0);
 }
 
@@ -84,6 +109,7 @@ void enable_hooks() {
 const bool registered = [] {
     gba_mod_register_function_entry_plugin(kHookId, kChooseGameHandler, 1, &on_choose_game);
     gba_mod_register_function_entry_plugin(kSlotHookId, kScreenReset, 1, &on_screen_reset);
+    gba_mod_register_function_entry_plugin(kExitHookId, kFourSwordsExit, 1, &on_four_swords_exit);
     gba_mod_register_reset_callback(&enable_hooks);
     enable_hooks();
     return true;

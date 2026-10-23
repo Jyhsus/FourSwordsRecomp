@@ -344,13 +344,25 @@ archivo.
 *Salida.* Four Swords sale por el sub-estado 7 (`0x08030018`) de la tabla de
 `0x084278C0` (usada en `0x0802FB20`; el sub-estado 6 vuelve al modo 9): espera
 al fundido, reinicia la pantalla y llama a `set_game_mode(6)` (`0x0803003E`).
-Con una sola GBA no se puede salir del lobby, así que este camino necesita el
-M3 para probarse. Volver al launcher requiere una llamada del motor que
-termine `run_game()` de forma limpia (el `.sav` se escribe cuando paran las
-escrituras y al cerrar). GBARecomp aún no la ofrece: trabajo para upstream.
+El sub-estado 2 del modo 9 (`0x0802FAEC`, tabla `0x08427830`) despacha esos
+pasos del lobby según `0x03000BFC`. Con una sola GBA ninguna tecla saca del
+lobby, pero escribir 7 en `0x03000BFC` ahí reproduce la salida.
 
-**Falta:** la pantalla del launcher (lista, crear, renombrar, borrar, jugar),
-el hook de salida y la petición de cierre en upstream.
+Un hook en `0x08030018` actúa cuando el indicador de fundido `0x03000520` está
+a cero. Con `--slot` llama a `gbarecomp::request_quit()`: el bucle se detiene
+al final del frame y `run_game()` sale por su camino normal, escribiendo el
+`.sav` (se escribe cuando paran las escrituras y al cerrar, así que terminar
+el proceso desde un hook podría perder una partida). Sin `--slot` desactiva el
+hook de arranque directo, de modo que aparece el "CHOOSE A GAME" original en
+vez de un bucle. `request_quit()` es un parche local de GBARecomp
+(`patches/gbarecomp/0001-runtime-request-quit.patch`, redactado como el PR
+para upstream; ver `patches/README.es.md`). Comprobado desde un savestate del
+lobby con el paso 7 forzado: con `--slot` termina con código 0 en ese frame;
+sin él el juego muestra "CHOOSE A GAME".
+
+**Falta:** la pantalla del launcher (lista, crear, renombrar, borrar, jugar) y
+volver a ella cuando `run_game()` termina; enviar el parche a upstream;
+comprobar la salida real con dos GBAs (M3).
 
 ### 8.2 Sin BIOS para el usuario 📋
 

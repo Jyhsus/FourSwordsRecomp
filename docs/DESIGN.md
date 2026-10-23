@@ -334,13 +334,24 @@ the `--slot` and the file-select paths.
 *Exit.* Four Swords leaves through sub-state 7 (`0x08030018`) of the table at
 `0x084278C0` (used at `0x0802FB20`; sub-state 6 returns to mode 9): it waits
 for the fade, resets the screen and calls `set_game_mode(6)` (`0x0803003E`).
-With one GBA the lobby cannot be left, so this path needs M3 to be exercised.
-Returning to the launcher needs an engine call that ends `run_game()` cleanly
-(the `.sav` is flushed when writes settle and on shutdown). GBARecomp does not
-expose one yet: upstream work.
+Mode 9 sub-state 2 (`0x0802FAEC`, table `0x08427830`) dispatches those lobby
+steps by `0x03000BFC`. With one GBA no key leaves the lobby, but writing 7 to
+`0x03000BFC` there reproduces the quit.
 
-**Still to do:** the launcher screen (list, create, rename, erase, play), the
-exit hook and the upstream quit request.
+A hook on `0x08030018` acts once the fade flag `0x03000520` is clear. With
+`--slot` it calls `gbarecomp::request_quit()`: the run loop stops at the frame
+boundary and `run_game()` exits normally, flushing the `.sav` (it is written
+when writes settle and on shutdown, so leaving the process from a hook could
+lose a save). Without `--slot` it disables the direct-boot hook, so the stock
+"CHOOSE A GAME" appears instead of a loop. `request_quit()` is a local
+GBARecomp patch (`patches/gbarecomp/0001-runtime-request-quit.patch`, written
+as the upstream PR; see `patches/README.md`). Checked from a lobby savestate
+with step 7 forced: `--slot` ends with exit code 0 in that frame; without it
+the game shows "CHOOSE A GAME".
+
+**Still to do:** the launcher screen (list, create, rename, erase, play) and
+looping back to it when `run_game()` returns; sending the patch upstream;
+checking the real quit with two GBAs (M3).
 
 ### 8.2 No BIOS needed by the player 📋
 

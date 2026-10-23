@@ -40,6 +40,13 @@ if(NOT EXISTS "${GBARECOMP_ROOT}/CMakeLists.txt")
     message(FATAL_ERROR
         "gbarecomp submodule missing. Run: git submodule update --init --recursive")
 endif()
+# Local engine patches waiting for upstream (patches/README.md).
+file(READ "${GBARECOMP_ROOT}/src/runtime/runtime.h" _gbarecomp_runtime_h)
+if(NOT _gbarecomp_runtime_h MATCHES "request_quit")
+    message(FATAL_ERROR
+        "gbarecomp lacks a local patch. Run: git -C gbarecomp apply "
+        "../patches/gbarecomp/0001-runtime-request-quit.patch (see patches/README.md)")
+endif()
 add_subdirectory("${GBARECOMP_ROOT}" gbarecomp_build EXCLUDE_FROM_ALL)
 
 # ── Generated cartridge code (local only, derived from the player's ROM) ──
@@ -125,7 +132,7 @@ if(GBAGAME_RECOMP_UI)
         COMPILE_DEFINITIONS GBAGAME_RECOMP_UI)
 endif()
 
-# Host-side save model tests (no ROM needed): ctest --test-dir build
+# Host-side save model tests (no ROM needed): ctest --test-dir build -R fs_save
 include(CTest)
 if(BUILD_TESTING)
     add_executable(fs_save_test tests/fs_save_test.cpp src/fs_save.cpp)

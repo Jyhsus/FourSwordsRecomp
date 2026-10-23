@@ -1,0 +1,92 @@
+From: Jesús <jesus33050@gmail.com>
+Subject: [PATCH] runtime: let the game end run_game() cleanly (request_quit)
+
+Games that own their front end (a launcher with save slots, for example)
+need to leave a session from guest code, such as when the player picks
+"Quit" in the game. There was no way to do that: host_quit is local to
+run_game(), and exiting the process from a hook can lose a save that is
+still waiting for the write debounce.
+
+gbarecomp::request_quit() sets an atomic flag that the run loop treats like
+closing the window: the session stops at the next frame boundary and
+run_game() takes its normal exit path, so the cartridge save is flushed.
+quit_requested() reads it. run_game() clears the flag on entry. Safe from
+any thread and from mod function hooks.
+
+Covered: windowed play (input pump and present-in-place hook) and headless
+runs (runner loop and playback present hook). Not covered yet: the TCP
+debugger loop (client-driven by design) and multiplayer sessions.
+
+Used by FourSwordsRecomp to return to its launcher when Four Swords quits.
+
+---
+diff --git a/src/runtime/runtime.cpp b/src/runtime/runtime.cpp
+index 3dce81e..69c17d5 100644
+--- a/src/runtime/runtime.cpp
++++ b/src/runtime/runtime.cpp
+@@ -1323,7 +1323,15 @@ extern "C" unsigned g_ws_extra_left  = 0;
+ extern "C" unsigned g_ws_extra_right = 0;
+ extern "C" unsigned g_ws_view_width  = 240;
+ 
++namespace {
++std::atomic<bool> g_quit_requested{false};
++}  // namespace
++
++void request_quit() { g_quit_requested.store(true, std::memory_order_release); }
++bool quit_requested() { return g_quit_requested.load(std::memory_order_acquire); }
++
+ int run_game(int argc, char** argv, const RunOptions& opts) {
++    g_quit_requested.store(false, std::memory_order_release);
+     // Game runners install this before entering run_game(). Clear it on every
+     // return path so a later game launched in the same process cannot call a
+     // stale game-specific copied-code dispatcher.
+@@ -3679,7 +3687,7 @@ int run_game(int argc, char** argv, const RunOptions& opts) {
+             input_record_have_value = true;
+             input_record_last_value = recorded_keys;
+         }
+-        if (ev.quit) host_quit = true;
++        if (ev.quit || quit_requested()) host_quit = true;
+         if (ev.enter_background || ev.terminating) {
+             // The OS may kill a backgrounded app without further notice:
+             // persist the cartridge save, a suspend state and the session's
+@@ -4286,6 +4294,7 @@ int run_game(int argc, char** argv, const RunOptions& opts) {
+                                        fp_t4, FramePhaseRing::now_ns());
+                 }
+             }
++            if (quit_requested()) host_quit = true;
+             return host_quit;
+         });
+     }
+@@ -4578,6 +4587,7 @@ int run_game(int argc, char** argv, const RunOptions& opts) {
+     if (!args.window && diag.playing()) {
+         runtime_set_frame_present_hook([&]() -> bool {
+             headless_playback_boundary('h');
++            if (quit_requested()) host_quit = true;
+             return host_quit;
+         });
+     }
+@@ -4595,6 +4605,7 @@ int run_game(int argc, char** argv, const RunOptions& opts) {
+         // Paused: hold the guest still, keep the window alive (input pump,
+         // re-present, ~100 Hz idle). Applies to windowed play only.
+         service_host_pause();
++        if (quit_requested()) host_quit = true;
+         if (host_quit) break;
+         if (!step_once()) break;
+         if (input_replay_requested) {
+diff --git a/src/runtime/runtime.h b/src/runtime/runtime.h
+index f7f344c..64c39a6 100644
+--- a/src/runtime/runtime.h
++++ b/src/runtime/runtime.h
+@@ -330,4 +330,12 @@ struct RunOptions {
+ 
+ int run_game(int argc, char** argv, const RunOptions& opts = {});
+ 
++// Ask the running single-session run_game() to end as if its window were
++// closed: the run loop stops at its next frame boundary and run_game() takes
++// its normal exit path (the cartridge save is flushed). Safe to call from any
++// thread and from guest function hooks. run_game() clears the request on
++// entry. Multiplayer sessions do not observe it yet.
++void request_quit();
++bool quit_requested();
++
+ }  // namespace gbarecomp

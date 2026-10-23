@@ -72,6 +72,7 @@ pacman -S --needed mingw-w64-x86_64-toolchain mingw-w64-x86_64-cmake mingw-w64-x
 ```powershell
 git clone --recurse-submodules https://github.com/<tu-usuario>/FourSwordsRecomp.git
 cd FourSwordsRecomp
+git -C gbarecomp apply ../patches/gbarecomp/0001-runtime-request-quit.patch   # ver patches/README.es.md
 
 # 1. Compilar el recompilador (MSVC; usa "Visual Studio 17 2022" con VS 2022)
 cmake -S gbarecomp -B gbarecomp\build -G "Visual Studio 18 2026" -A x64
@@ -125,6 +126,8 @@ cubre los problemas de herramientas.
 | `game.toml` | Configuración del recompilador y del runtime para `AZLE` |
 | `src/` | Código propio: punto de entrada, hooks de Four Swords |
 | `tools/` | `regen.ps1` / `regen.sh` — regenerar C++ desde tu ROM |
+| `patches/` | Parches locales de GBARecomp a la espera de upstream (ver su README) |
+| `tests/` | Pruebas del lado del host (`ctest --test-dir build -R fs_save`) |
 | `symbols/` | Nombres de funciones/datos descubiertos con ingeniería inversa |
 | `generated/` | C++ generado localmente (ignorado por git) |
 | `docs/` | Diseño, hoja de ruta, notas de investigación (inglés y español) |
