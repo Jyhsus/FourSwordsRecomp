@@ -43,7 +43,7 @@ Flagship) right after Four Swords and shares a lot of engine design. The
 references for naming functions and structures. Only *names and addresses*
 may be imported, never decompiled source.
 
-## 2. Boot straight into Four Swords 🔧
+## 2. Boot straight into Four Swords ✅ (launcher toggle pending)
 
 On the cartridge, the player first picks a save file ("CHOOSE A FILE"), then
 chooses between *A Link to the Past* and *Four Swords*.
@@ -79,8 +79,56 @@ RAM). `tools/audit_jump_tables.py` trims them; its output is the overlay
 `symbols/AZLE_symbols.toml`. Result: 33,270 functions, generated in ~1 min.
 This should also be fixed upstream.
 
-**Still open for M2:** play the intro to the Four Swords lobby with one GBA and
-check that it is stable there.
+**Is the tail call safe?** `start_four_swords` does not read `r0`–`r3`: its
+first instruction after `push {lr}` is `bl 0x0800BED8`, which writes `r0` and
+`r1` before reading them. So it does not matter that the hook enters it with
+`r0 = 6` instead of the link count the stock path leaves there. Three call sites
+request mode 6; the hook changes all of them:
+
+| Call site | Context | Effect of the hook |
+|---|---|---|
+| `0x0800F87A` | File select, after a file is picked | Intended: straight to Four Swords |
+| `0x0803003E` | Mode-5 sub-state (table `0x084278DC`), re-initialises and returns to "CHOOSE A GAME" | Goes back into Four Swords instead (fine for a Four Swords-only build) |
+| `0x080310A6` | Multi-Pak notice sub-state (table `0x08427980`), right after its own `start_four_swords` call | Unreachable while the hook is on: mode 6 never runs |
+
+**Lobby reached and stable** (22 Oct 2026, Windows, headless). Input was
+replayed with `GBARECOMP_INPUT_REPLAY` (create a file, pick it, press A every
+40 frames until frame 20000), then the game idled to frame 40000. Through the
+whole intro (Zelda, Vaati, the four Links) it reaches the Four Swords title with
+"Linking with other systems… Please wait a moment." at mode 9, sub-state 2,
+and stays there: no aborts, call-return stack depth 0 at frames 3000, 8000,
+20000 and 40000, and A/B/START at the lobby change nothing.
+
+**The "evicted 511 host-less call-return entries" warning** was a real leak
+that ended in `generated call-return stack overflow` (abort) during the intro.
+The runtime pushes a return address on every `BL` and pops it when the callee
+returns. Savestates showed the stack filling with `0x08134A66` and
+`0x08134A7A`, the return addresses of two m4a veneers that call
+`*(0x02031AB8)` / `*(0x02031ABC)`. Those are entries 35/36 of the m4a sound
+driver's jump table, which the driver copies to RAM, so the finder never saw
+the targets. The whole driver ran in the self-heal interpreter bridge, mixed
+with native veneers, and those returns were never popped. The PC in the
+warning (`0x08009476`, later `0x08034FE8`) is just whichever call was being
+pushed when the stack filled. The same mix also made the bridge abort on the
+IWRAM ARM routine `0x03005AE0` (copied from `0x080008A8`) as soon as sound
+effects played. The leak came before the hook: savestates from the original
+build already had 80 entries.
+
+Fix in `game.toml`: the m4a jump table (`0x083C2654`, 36 entries), the IRQ
+handler table (`0x08427360`, 13 entries; the VBlank entry points to EWRAM code
+and is left out), `m4aSoundMain` (`0x081346FC`), `SoundMain` (`0x081339D4`),
+`MPlayMain` (`0x08134074`), `0x0800B7FC`, and a `[[code_copy]]` plus
+`[[extra_func]]` for `0x03005AE0`. After that, no ROM address is bridged any
+more.
+
+**Testing note:** stepping frame by frame over TCP (`run_frames`) exposed
+these bridge problems sooner than free running, because each step ends at an
+arbitrary PC. For long runs, prefer `--frames N` with `GBARECOMP_INPUT_REPLAY`
+(lines `frame,0xKEYINPUT`) and `--dump-png` / `--dump-state`.
+
+**Left for M3:** Thumb code in IWRAM at `0x03006D18`–`0x03006E96` is still
+bridged (a jump-table candidate, likely the link/serial code; source copy not
+found yet). Not needed with one GBA.
 
 ## 3. Single player like the Anniversary Edition 📋
 

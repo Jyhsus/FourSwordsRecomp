@@ -75,6 +75,63 @@ format       = "abs32"
 entries_mode = "auto"   # entries carry the Thumb bit; "thumb" would decode at odd PCs
 name         = "choose_game_state_handlers"
 
+# m4a (Sappy) sound driver. Its sequencer command handlers are called through
+# a RAM copy of this table (MPlayJumpTableCopy at 0x08133E94 copies it to
+# 0x02031A..; e.g. 0x02031AB8/0x02031ABC hold entries 35/36), so the finder
+# never sees them. Bridged, they leaked call-return entries (0x08134A66 /
+# 0x08134A7A) until the runtime aborted with a call-return stack overflow.
+[[jump_table]]
+addr         = 0x083C2654
+stride       = 4
+count        = 36
+format       = "abs32"
+entries_mode = "auto"
+name         = "m4a_jump_table"
+
+# IRQ handler table, copied to RAM at 0x0800B6F4. Entry 0 (VBlank) points to
+# EWRAM code (0x02030591) and is left out; the rest are ROM Thumb handlers.
+[[jump_table]]
+addr         = 0x08427360
+stride       = 4
+count        = 13
+format       = "abs32"
+entries_mode = "auto"
+name         = "irq_handlers_from_hblank"
+
+# m4a entries reached only through RAM pointers or from the VBlank code.
+[[extra_func]]
+addr = 0x081346FC
+mode = "thumb"
+name = "m4aSoundMain"
+
+[[extra_func]]
+addr = 0x081339D4
+mode = "thumb"
+name = "SoundMain"
+
+[[extra_func]]
+addr = 0x08134074
+mode = "thumb"
+name = "MPlayMain"   # address taken at 0x08134E38
+
+[[extra_func]]
+addr = 0x0800B7FC
+mode = "thumb"
+note = "calls m4aSoundMain; reached from the VBlank code in EWRAM"
+
+# ARM routine copied to IWRAM at boot (CpuSet at 0x0800B106, 0x40 words) and
+# reached through a function pointer once sound effects play. Bridged through
+# the interpreter it never returned to its caller (0x08134A66) and aborted.
+[[code_copy]]
+runtime_start = 0x03005AE0
+source_start  = 0x080008A8
+size          = 0x100
+name          = "iwram_arm_routine_5ae0"
+
+[[extra_func]]
+addr = 0x03005AE0
+mode = "arm"
+
 # set_game_mode(r0): stores the mode byte and clears the sub-states. Hooked by
 # src/fs_boot.cpp to replace mode 6 ("CHOOSE A GAME") with Four Swords.
 [[mod_function_hook]]

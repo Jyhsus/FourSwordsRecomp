@@ -110,7 +110,7 @@ cubre los problemas de herramientas.
 | ROM, BIOS y tipo de guardado identificados; `game.toml` escrito | ✅ |
 | ROM completa generada a C++ (1.537 funciones; lo que falta se interpreta y se guarda compilado) | ✅ |
 | M1 — el ejecutable nativo pasa por la BIOS y los logos de Nintendo/Capcom hasta la pantalla de selección de archivo | ✅ (Linux sin ventana, 22 oct 2026) |
-| M2 — arranque directo en Four Swords: al elegir partida se salta "CHOOSE A GAME" y empieza la intro de Four Swords (`FSR_STOCK_MENU=1` recupera la pantalla original) | 🔧 (Windows, 22 oct 2026; aún sin llegar al lobby) |
+| M2 — arranque directo en Four Swords: al elegir partida se salta "CHOOSE A GAME" y empieza la intro de Four Swords (`FSR_STOCK_MENU=1` recupera la pantalla original) | ✅ (Windows, 22 oct 2026; llega al lobby con una GBA y aguanta estable 40.000 frames; falta la opción del launcher) |
 | M3 — dos consolas enlazadas en local por el cable emulado | 📋 |
 | M4 — un jugador estilo Anniversary | 📋 |
 | M5 — en línea 2 jugadores, luego 3–4 | 📋 |

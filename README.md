@@ -110,7 +110,7 @@ covers toolchain problems.
 | ROM, BIOS and save type identified; `game.toml` written | ✅ |
 | Whole ROM generated to C++ (1,537 functions; misses are interpreted and cached) | ✅ |
 | M1 — native build boots through the BIOS and the Nintendo/Capcom logos to the file-select screen | ✅ (headless Linux, 22 Oct 2026) |
-| M2 — direct boot into Four Swords: picking a save file skips "CHOOSE A GAME" and starts the Four Swords intro (`FSR_STOCK_MENU=1` restores the stock screen) | 🔧 (Windows, 22 Oct 2026; lobby not reached yet) |
+| M2 — direct boot into Four Swords: picking a save file skips "CHOOSE A GAME" and starts the Four Swords intro (`FSR_STOCK_MENU=1` restores the stock screen) | ✅ (Windows, 22 Oct 2026; reaches the one-GBA lobby and stays stable for 40,000 frames; launcher toggle pending) |
 | M3 — two consoles linked locally through the emulated cable | 📋 |
 | M4 — Anniversary-style single player | 📋 |
 | M5 — online 2 players, then 3–4 | 📋 |

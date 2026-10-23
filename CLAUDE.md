@@ -32,6 +32,8 @@ Windows (verified 22 Oct 2026, windowed): `gba_recompile` with MSVC (VS 2026 Bui
 - Code ends near `0x08138000`; tables and data follow. `aot_scan` stays off: even limited to `0x08000000–0x08140000` it produced ~490k "functions" and ~20 GB RAM.
 - Unbounded ("BX walked") auto jump tables get over-sized and seed ARM junk in data that runs into the `0xFF` padding at `0x0868_0000+`. Symptom: function count jumps from ~33k to ~490k. Fix: `GBARECOMP_JT_REPORT=1` recompile into a scratch dir, then `python tools/audit_jump_tables.py ROM <logs...> > symbols/AZLE_symbols.toml` (the overlay `regen.ps1` loads). Upstream finder bug.
 - `[[jump_table]]` with Thumb pointers needs `entries_mode = "auto"`; `"thumb"` keeps bit 0 and decodes odd PCs.
+- `evicted N host-less call-return entries` / `call-return stack overflow` = code reached through RAM function pointers running in the self-heal bridge (was the m4a sound driver). Check depth with the CPU0 section of a `--dump-state` file; a healthy run stays near 0. Seed the pointer table instead of ignoring the warning.
+- Long runs: `GBARECOMP_INPUT_REPLAY=<file>` (lines `frame,0xKEYINPUT`, value held until the next line) with `--frames N --dump-png --dump-state`. TCP `run_frames` stepping exposes bridge bugs that free running doesn't.
 - Self-heal bridge entered at a mid-function return address can run away (200M instructions, pc in BIOS IntrWait `0x348`) and abort. Cure: make that code static (seed the pointer table). Also seen: self-heal gcc overlays fail (`g_runtime_resume_pc` undeclared) and windowed `--frames` runs end with `terminate called without an active exception`. Both upstream.
 - Game modes: byte `0x03006D10`, table `0x0842731C`, setter `set_game_mode` `0x0800B5EC`; 8 = file select, 6 = CHOOSE A GAME, 9 = Four Swords, 13 = LttP. `start_four_swords` = `0x08030E0C`. Details in docs/DESIGN.md §2.
 - Save: 64 Kbit EEPROM (`EEPROM_V122` @ `0x08427298`).
@@ -42,5 +44,6 @@ Windows (verified 22 Oct 2026, windowed): `gba_recompile` with MSVC (VS 2026 Bui
 
 ## Milestones (see docs/DESIGN.md)
 - M1 boot to file select ✅
-- **M2 in progress:** `src/fs_boot.cpp` hooks `set_game_mode` and turns mode 6 into a tail call to `start_four_swords`; picking a file now starts the Four Swords intro (`FSR_STOCK_MENU=1` = stock menu). Next: reach the Four Swords lobby with one GBA and check it's stable; launcher toggle; look into `evicted 511 host-less call-return entries at return_pc=0x08009476` seen during the intro.
+- **M2 ✅** (launcher toggle pending): `src/fs_boot.cpp` hooks `set_game_mode` and turns mode 6 into a tail call to `start_four_swords`. With one GBA it reaches the lobby ("Linking with other systems…", mode 9 sub 2) and is stable to frame 40000. Details in docs/DESIGN.md §2.
+- **M3 next:** IWRAM Thumb code `0x03006D18–0x03006E96` is still bridged (likely link/serial); find its ROM source and declare a `[[code_copy]]`.
 - M3 two local consoles over `GbaLinkHub` → M4 Anniversary-style single player → M5 online 2–4 → M6 DSi content research (may be impossible).

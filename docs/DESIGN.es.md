@@ -43,7 +43,7 @@ decompilación [zeldaret/tmc](https://github.com/zeldaret/tmc) y
 más cercanas para nombrar funciones y estructuras. Solo se importan *nombres y
 direcciones*, nunca código decompilado.
 
-## 2. Arrancar directamente en Four Swords 🔧
+## 2. Arrancar directamente en Four Swords ✅ (falta la opción del launcher)
 
 En el cartucho, el jugador elige primero un archivo de guardado ("CHOOSE A FILE")
 y después entre *A Link to the Past* y *Four Swords*.
@@ -80,8 +80,59 @@ sembraban "funciones" ARM en datos que acababan en el relleno `0xFF` de la ROM
 su salida es el overlay `symbols/AZLE_symbols.toml`. Resultado: 33.270
 funciones, generadas en ~1 min. Conviene corregirlo también upstream.
 
-**Pendiente del M2:** jugar la intro hasta el lobby de Four Swords con una GBA
-y comprobar que es estable ahí.
+**¿Es segura la llamada de cola?** `start_four_swords` no lee `r0`–`r3`: su
+primera instrucción tras `push {lr}` es `bl 0x0800BED8`, que escribe `r0` y
+`r1` antes de leerlos. Así que da igual que el hook entre con `r0 = 6` en vez
+del número de consolas que deja ahí el camino original. Hay tres llamadas que
+piden el modo 6, y el hook cambia las tres:
+
+| Llamada | Contexto | Efecto del hook |
+|---|---|---|
+| `0x0800F87A` | Selección de archivo, tras elegir partida | El buscado: directo a Four Swords |
+| `0x0803003E` | Subestado del modo 5 (tabla `0x084278DC`), reinicializa y vuelve a "CHOOSE A GAME" | Vuelve a Four Swords en su lugar (correcto en una build solo de Four Swords) |
+| `0x080310A6` | Subestado del aviso Multi-Pak (tabla `0x08427980`), justo tras su propia llamada a `start_four_swords` | Inalcanzable con el hook activo: el modo 6 nunca se ejecuta |
+
+**Lobby alcanzado y estable** (22 oct 2026, Windows, sin ventana). Las
+entradas se reprodujeron con `GBARECOMP_INPUT_REPLAY` (crear partida, elegirla,
+pulsar A cada 40 frames hasta el frame 20000) y luego el juego quedó en reposo
+hasta el frame 40000. Tras la intro completa (Zelda, Vaati, los cuatro Links)
+llega al título de Four Swords con "Linking with other systems… Please wait a
+moment." en el modo 9, subestado 2, y se queda ahí: sin aborts, con la pila de
+retornos a profundidad 0 en los frames 3000, 8000, 20000 y 40000, y pulsar
+A/B/START en el lobby no cambia nada.
+
+**El aviso "evicted 511 host-less call-return entries"** era una fuga real
+que acababa en `generated call-return stack overflow` (abort) durante la intro.
+El runtime apila una dirección de retorno en cada `BL` y la saca al volver.
+Los savestates mostraban la pila llenándose de `0x08134A66` y `0x08134A7A`,
+las direcciones de retorno de dos trampolines de m4a que llaman a
+`*(0x02031AB8)` / `*(0x02031ABC)`. Son las entradas 35/36 de la tabla de saltos
+del driver de sonido m4a, que el driver copia a RAM, así que el buscador nunca
+vio los destinos. Todo el driver se ejecutaba en el puente de self-heal,
+mezclado con trampolines nativos, y esos retornos nunca se sacaban. El PC del
+aviso (`0x08009476`, luego `0x08034FE8`) solo es la llamada que se estaba
+apilando cuando la pila se llenó. Esa misma mezcla hacía abortar el puente con
+la rutina ARM de IWRAM `0x03005AE0` (copiada desde `0x080008A8`) en cuanto
+sonaban efectos. La fuga es anterior al hook: los savestates de la build
+original ya tenían 80 entradas.
+
+Arreglo en `game.toml`: la tabla de saltos de m4a (`0x083C2654`, 36
+entradas), la tabla de manejadores de IRQ (`0x08427360`, 13 entradas; la de
+VBlank apunta a código en EWRAM y se deja fuera), `m4aSoundMain`
+(`0x081346FC`), `SoundMain` (`0x081339D4`), `MPlayMain` (`0x08134074`),
+`0x0800B7FC`, y un `[[code_copy]]` más `[[extra_func]]` para `0x03005AE0`.
+Después de eso ya no se interpreta ninguna dirección de la ROM.
+
+**Nota sobre pruebas:** avanzar frame a frame por TCP (`run_frames`) destapaba
+antes estos problemas del puente que la ejecución libre, porque cada paso
+termina en un PC arbitrario. Para ejecuciones largas es mejor `--frames N` con
+`GBARECOMP_INPUT_REPLAY` (líneas `frame,0xKEYINPUT`) y `--dump-png` /
+`--dump-state`.
+
+**Pendiente para el M3:** el código Thumb en IWRAM `0x03006D18`–`0x03006E96`
+sigue pasando por el puente (candidato a tabla de saltos, probablemente el
+código del enlace serie; aún no se ha encontrado de dónde se copia). No hace
+falta con una sola GBA.
 
 ## 3. Un jugador como en la Anniversary Edition 📋
 
