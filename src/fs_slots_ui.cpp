@@ -106,8 +106,10 @@ class Screen {
 public:
     explicit Screen(const SlotScreen& s) : paths_(s) { reload(); }
 
-    // One frame of UI; returns a slot or kSlotScreenBack once chosen, else kStay.
+    // One frame of UI; returns a slot or a kSlotScreen code once chosen, else kStay.
     int draw(const ImFont* title_font);
+
+    const LocalPlan& local() const { return local_; }
 
 private:
     void reload();
@@ -117,6 +119,8 @@ private:
     bool store(Image& image);
     void name_popup();
     void erase_popup();
+    int multiplayer_popup();
+    void default_local_plan();
 
     SlotScreen paths_;
     std::optional<Image> image_;   // empty when there is no .sav yet
@@ -127,6 +131,10 @@ private:
     int target_ = -1;              // slot the open popup acts on
     bool creating_ = false;
     char name_[32] = {};
+
+    enum class Page { Choose, Local, Online };
+    Page page_ = Page::Choose;     // of the Multiplayer popup
+    LocalPlan local_;
 };
 
 void Screen::reload() {
@@ -263,6 +271,98 @@ void Screen::erase_popup() {
     ImGui::EndPopup();
 }
 
+// Player N gets the N-th file in use; the others play as guests.
+void Screen::default_local_plan() {
+    local_.save_path = paths_.save_path;
+    local_.file.fill(kGuestFile);
+    int player = 0;
+    for (int i = 0; i < save::kSlotCount && player < kLocalMaxPlayers; ++i) {
+        if (slots_[i].used) local_.file[player++] = i;
+    }
+}
+
+int Screen::multiplayer_popup() {
+    int result = kStay;
+    ImGui::SetNextWindowPos(ImGui::GetMainViewport()->GetCenter(), ImGuiCond_Always,
+                            ImVec2(0.5f, 0.5f));
+    if (!ImGui::BeginPopupModal("Multiplayer", nullptr,
+                                ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoMove)) {
+        return result;
+    }
+    const ImVec2 wide(240.0f, 0.0f);
+    bool close = ImGui::IsKeyPressed(ImGuiKey_Escape, false);
+
+    if (page_ == Page::Choose) {
+        if (ImGui::Button("Local", wide)) {
+            default_local_plan();
+            page_ = Page::Local;
+        }
+        ImGui::SameLine();
+        ImGui::TextDisabled("2 to 4 players on this computer, split screen");
+        if (ImGui::Button("Online", wide)) page_ = Page::Online;
+        ImGui::SameLine();
+        ImGui::TextDisabled("2 to 4 players over the internet or a LAN");
+        ImGui::Separator();
+        close = ImGui::Button("Cancel", ImVec2(120.0f, 0.0f)) || close;
+    } else if (page_ == Page::Local) {
+        ImGui::TextUnformatted("Players");
+        for (int n = 2; n <= kLocalMaxPlayers; ++n) {
+            ImGui::SameLine();
+            ImGui::RadioButton(std::to_string(n).c_str(), &local_.players, n);
+        }
+        for (int p = 0; p < local_.players; ++p) {
+            ImGui::PushID(p);
+            ImGui::AlignTextToFramePadding();
+            ImGui::Text("Player %d", p + 1);
+            ImGui::SameLine(110.0f);
+            auto label = [this](int file) {
+                return file == kGuestFile ? std::string("Guest (not saved)")
+                                          : "File " + std::to_string(file + 1) + "  " + slots_[file].name;
+            };
+            ImGui::SetNextItemWidth(260.0f);
+            if (ImGui::BeginCombo("##file", label(local_.file[p]).c_str())) {
+                for (int file = kGuestFile; file < save::kSlotCount; ++file) {
+                    if (file != kGuestFile && !slots_[file].used) continue;
+                    bool taken = false;
+                    for (int q = 0; q < local_.players; ++q) {
+                        taken |= q != p && file != kGuestFile && local_.file[q] == file;
+                    }
+                    ImGui::BeginDisabled(taken);
+                    if (ImGui::Selectable(label(file).c_str(), local_.file[p] == file)) local_.file[p] = file;
+                    ImGui::EndDisabled();
+                }
+                ImGui::EndCombo();
+            }
+            ImGui::SameLine();
+            ImGui::TextDisabled(p == 0 ? "keyboard + controller 1" : "controller %d", p + 1);
+            ImGui::PopID();
+        }
+        const int pads = SDL_NumJoysticks();
+        if (pads < local_.players) {
+            ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.4f, 1.0f),
+                               "%d controller(s) connected; players without one cannot move.", pads);
+        }
+        ImGui::TextDisabled("Each file is saved back on its own; a guest's progress is not kept.");
+        ImGui::Separator();
+        // Every file is played by one GBA at most (its blocks are merged back).
+        ImGui::BeginDisabled(!valid_local_plan(local_, slots_));
+        if (ImGui::Button("Start", ImVec2(120.0f, 0.0f))) result = kSlotScreenLocal;
+        ImGui::EndDisabled();
+        ImGui::SameLine();
+        if (ImGui::Button("Back", ImVec2(120.0f, 0.0f))) page_ = Page::Choose;
+    } else {
+        ImGui::TextUnformatted("Online rooms are on the launcher's netplay page.");
+        ImGui::TextDisabled("Every player needs their own copy of the game and BIOS.");
+        ImGui::Separator();
+        if (ImGui::Button("Open the launcher", ImVec2(200.0f, 0.0f))) result = kSlotScreenOnline;
+        ImGui::SameLine();
+        if (ImGui::Button("Back", ImVec2(120.0f, 0.0f))) page_ = Page::Choose;
+    }
+    if (close || result != kStay) ImGui::CloseCurrentPopup();
+    ImGui::EndPopup();
+    return result;
+}
+
 int Screen::draw(const ImFont* title_font) {
     int result = kStay;
     const ImGuiViewport* vp = ImGui::GetMainViewport();
@@ -331,6 +431,13 @@ int Screen::draw(const ImFont* title_font) {
         result = kSlotScreenBack;
     }
     ImGui::SameLine();
+    ImGui::BeginDisabled(broken_);
+    if (ImGui::Button("Multiplayer", ImVec2(button_w * 1.4f, 0.0f))) {
+        page_ = Page::Choose;
+        open_popup = "Multiplayer";
+    }
+    ImGui::EndDisabled();
+    ImGui::SameLine();
     ImGui::AlignTextToFramePadding();
     ImGui::TextDisabled("%s", paths_.save_path.filename().string().c_str());
     if (!error_.empty() && !ImGui::IsPopupOpen("", ImGuiPopupFlags_AnyPopupId)) {
@@ -343,13 +450,14 @@ int Screen::draw(const ImFont* title_font) {
     }
     name_popup();
     erase_popup();
+    if (const int chosen = multiplayer_popup(); chosen != kStay) result = chosen;
     ImGui::End();
     return result;
 }
 
 }  // namespace
 
-int run_slot_screen(const SlotScreen& paths) {
+int run_slot_screen(SlotScreen& paths) {
     if (SDL_InitSubSystem(SDL_INIT_VIDEO | SDL_INIT_GAMECONTROLLER) != 0) {
         std::fprintf(stderr, "[fsr] file screen: %s\n", SDL_GetError());
         return kSlotScreenQuit;
@@ -424,6 +532,7 @@ int run_slot_screen(const SlotScreen& paths) {
         ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
         SDL_GL_SwapWindow(window);
     }
+    if (result == kSlotScreenLocal) paths.local = screen.local();
 
     ImGui_ImplOpenGL3_Shutdown();
     ImGui_ImplSDL2_Shutdown();

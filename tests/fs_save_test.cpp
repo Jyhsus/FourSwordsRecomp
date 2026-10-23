@@ -106,6 +106,20 @@ int main() {
         check(!again->slots()[0].used, "slot 1 is empty after erase");
         check(marker_is(again->bytes(), 0x1070, "DelF") && marker_is(again->bytes(), 0x40, "DelF"),
               "erase marks both parts DelF in both mirrors");
+
+        // Local multiplayer (DESIGN section 10): merge one file, keep the rest.
+        auto from = Image::from_sav(again->sav_bytes());
+        check(from && from->bytes() == again->bytes(), "sav_bytes/from_sav round trip");
+        auto merged = Image::load(path);
+        if (from && merged) {
+            check(from->rename(2, "Merged") && from->create(1, "Other"), "edit two files");
+            merged->copy_file(*from, 2);
+            const auto slots = merged->slots();
+            check(slots[2].used && slots[2].name == "Merged", "copy_file brings file 3");
+            check(!slots[1].used && slots[0].used && slots[0].name == "AAA",
+                  "copy_file leaves files 1 and 2 alone");
+        }
+        check(!again->set_current_file(0), "set_current_file needs a valid system block");
     }
     std::filesystem::remove(path);
 
@@ -116,6 +130,13 @@ int main() {
         auto fresh = Image::load(fresh_path);
         check(blank && fresh && blank->bytes() == fresh->bytes(),
               "blank() matches the game's first-boot save");
+        if (blank) {
+            check(blank->set_current_file(2), "set the current file");
+            check(blank->bytes()[0x0E4] == 2 && blank->bytes()[0x10E4] == 2,
+                  "system block byte 4 holds it in both mirrors");
+            auto reread = Image::from_sav(blank->sav_bytes());
+            check(reread && !reread->set_current_file(3), "file 4 does not exist");
+        }
     }
 
     if (g_failures == 0) std::printf("fs_save_test: all checks passed\n");

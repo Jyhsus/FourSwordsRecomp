@@ -140,9 +140,9 @@ these bridge problems sooner than free running, because each step ends at an
 arbitrary PC. For long runs, prefer `--frames N` with `GBARECOMP_INPUT_REPLAY`
 (lines `frame,0xKEYINPUT`) and `--dump-png` / `--dump-state`.
 
-**Left for M3:** Thumb code in IWRAM at `0x03006D18`–`0x03006E96` is still
-bridged (a jump-table candidate, likely the link/serial code; source copy not
-found yet). Not needed with one GBA.
+**Solved in M3 (section 9):** the Thumb code in IWRAM at
+`0x03006D18`–`0x03006E96` is the m4a sound driver's `SoundMainRAM`, now a
+`[[code_copy]]`; single player is fully static.
 
 ## 3. Single player like the Anniversary Edition 📋
 
@@ -194,10 +194,10 @@ handled by input delay or rollback.
 | Step | Status |
 |---|---|
 | Netplay compiled in, 4 seats allowed | ✅ (code) |
-| Verify Four Swords' serial protocol on `GbaLinkHub` (2 consoles, local) | 📋 |
-| 3 and 4 consoles, local | 📋 |
+| Verify Four Swords' serial protocol on `GbaLinkHub` (2 consoles, local) | ✅ (section 9) |
+| 3 and 4 consoles, local | ✅ (section 10) |
 | Online 2 players, then 3–4 | 📋 |
-| Every virtual GBA boots directly into Four Swords (section 2) | 📋 |
+| Every virtual GBA boots directly into Four Swords (section 2) | ✅ (sections 9–10) |
 
 Each player needs their own verified ROM and BIOS, just as each player
 needed their own cartridge in 2002.
@@ -232,14 +232,15 @@ wired in `CMakeLists.txt`:
 
 * asks for the **USA ROM** and the **GBA BIOS**, checks SHA-1 and remembers them;
 * settings (video, audio, controls) and the **Netplay** tab (host/join, 2–4 players);
-* 📋 a "Single player (Anniversary style)" / "Multiplayer" mode choice;
+* the file screen's **Multiplayer** button: Local (split screen, section 10) or
+  Online (the Netplay tab) ✅; 📋 "Single player (Anniversary style)";
 * 🔬 an optional **DSi Anniversary Edition** field, only if section 5 proves feasible.
 
 ## 7. Milestones
 
 1. **M1 — Boots:** native build reaches the cartridge's game-select screen.
 2. **M2 — Four Swords direct boot** and a stable single-console Four Swords lobby.
-3. **M3 — Local 2-console** session through the emulated cable (proves the protocol). ✅ in one process (section 9); netplay path pending.
+3. **M3 — Local 2-console** session through the emulated cable (proves the protocol). ✅ in one process (section 9); netplay path pending. Local split-screen play for 2–4 players: section 10.
 4. **M4 — Anniversary-style single player** (follow, swap, whistle).
 5. **M5 — Online 2 players**, then **3–4**.
 6. **M6 — Research on Anniversary content** (go / no-go).
@@ -488,5 +489,85 @@ own), mode 5 at ~2,000, both in the game from ~2,100–2,300; the moves at
   give the timeout length), or the recompiled CPU may count too few cycles on
   that path. Until it is known, the override is a workaround for this game.
 * The same check with the real netplay path (two processes over UDP
-  loopback, then the launcher's rooms), 3–4 GBAs (their times keep the
-  reference values) and quitting a linked game (section 8.1).
+  loopback, then the launcher's rooms) and quitting a linked game (section
+  8.1). 3–4 GBAs link with the same value: section 10.
+
+## 10. Local multiplayer, split screen ✅ (2–4 players)
+
+**Result (23 Oct 2026):** the file screen (section 8.1) has a **Multiplayer**
+button with two choices:
+
+* **Local:** 2, 3 or 4 players on this computer. Each player picks a file in
+  use or **Guest**. The game runs that many virtual GBAs in this process on
+  one `GbaLinkHub` cable, as `FourSwordsLinkProbe` does (section 9), and shows
+  them in one window: two side by side (480×160), three or four in a 2×2 grid
+  (480×320; with three, the fourth cell stays black). Player 1 plays with the
+  keyboard and the first controller, player N with controller N (SDL order,
+  same button mapping as single player). The audio is player 1's; the other
+  GBAs' sound is dropped. Quitting Four Swords comes back to the launcher;
+  closing the window quits, as in single player.
+* **Online:** goes back to the launcher, whose Netplay tab has the rooms
+  (section 4).
+
+The same thing without the launcher, for testing:
+`FourSwordsRecomp --local 2,guest [--save-path x.sav] game.toml` (2–4
+comma-separated players, each `1`–`3` or `guest`). `src/fs_local.cpp` is the
+runner. It is handed to `run_game()` as a `RunOptions::netplay` launch with no
+network, so the runtime still checks the ROM, the BIOS and the window
+settings first. Debug aids: `FSR_LOCAL_INPUTS` (a probe input script, added to
+the live controls) and, with `--frames N`, `FSR_LOCAL_DUMP` (a BMP of the last
+split-screen frame).
+
+**Saves (decided 23 Oct 2026): merge by file.** Otherwise every GBA would own
+a full copy of the cartridge's EEPROM, and whichever wrote the `.sav` last
+would erase the others' progress. Instead:
+
+1. There is still one `.sav` (section 8.1). Each GBA powers on with a copy of
+   it, with the system block's current file (byte 4) set to that player's
+   file. `--slot`'s boot hook then leaves byte 4 alone
+   (`fsr::kBootSavedFile`), so each GBA boots its own file.
+2. A file can be played by one GBA at most; the screen and `--local` refuse
+   the same file twice. There are 3 files and up to 4 players, so the rest
+   play as **Guest**: a first-boot save (`Image::blank()` from the player's
+   ROM) with one file named `Guest2`…`Guest4`, never written to disk.
+3. When a GBA's EEPROM has been written and then left alone for 60 frames
+   (the game writes a file as many 8-byte blocks over several frames), and
+   again on the way out, only that GBA's file is copied into the `.sav`:
+   descriptors *i* (its A Link to the Past part) and 4+*i* (its Four Swords
+   header), status headers and data, both mirrors
+   (`fsr::save::Image::copy_file()`). The signature, the system block and the
+   other files stay as they are on disk.
+
+`tests/fs_save_test.cpp` covers `copy_file()` (one file merged, the others
+untouched) and `set_current_file()` (byte 4 in both mirrors, checksum valid
+through a reload).
+
+**Checked:**
+
+* `--local 2,guest` with `tests/m3_two_gba.inputs`: both GBAs link and
+  enter the game together, side by side, at full speed (2,800 frames in
+  47.6 s, about 59 fps).
+* Four players (`--local 2,guest,guest,guest`) and three
+  (`--local guest,2,guest`) with the same inputs on every GBA: everyone enters
+  the same game, each screen following its own Link.
+* `FourSwordsLinkProbe` gives the same final hash as in section 9.
+
+**Finding: 3–4 GBAs needed the same handshake time.** With the reference
+times (8,376 cycles for three GBAs, 10,486 for four) every GBA waits forever on
+"Linking with other systems…", exactly as two did in section 9. With 5,243
+cycles they link and play. On a real cable four GBAs take longer than two, so
+this points at our timing on the parent's path (the recompiled CPU reaching
+`0x0800C576` too early) rather than at the cable. `src/fs_boot.cpp` now sets
+5,243 for 2, 3 and 4 GBAs. The root cause is still open (section 9).
+
+**Still open:**
+
+* No 2,800-frame run writes the EEPROM, so only the unit tests check the
+  merge. It still needs a real check: finish a stage in a local game and
+  confirm that the file's medals and progress reach the `.sav`.
+* The windowed flow (launcher → files → Multiplayer → Local) is built and its
+  parts were run, but nobody has clicked through it yet.
+* Online play (`multiplayer_runner.cpp` upstream) never writes a player's
+  `.sav`, only paired checkpoints, so progress made online is lost. The fix is
+  the same as here, in the engine (an upstream PR).
+* Controllers are assigned in SDL order; there is no way to reorder them yet.

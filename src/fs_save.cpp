@@ -45,6 +45,9 @@ constexpr std::size_t kNameField = 8;
 constexpr std::size_t kNewFileFlagsOffset = 0x24;  // 1, 1 on a new file
 constexpr std::size_t kStatusOffset = 0x3F;   // 3 when written by the game
 
+// System block byte 4: the file AgbMain and mode 6 load.
+constexpr std::size_t kCurrentFileOffset = 4;
+
 // Player-ROM offsets of the fixed data a first boot writes (blank()).
 constexpr std::size_t kRomSignature = 0x14C630;   // 0x20 bytes, descriptor 3
 constexpr std::size_t kRomDefaultSystem = 0x14C6BC;  // 0x10 bytes, descriptor 7
@@ -243,6 +246,15 @@ std::optional<Image> Image::load(const std::filesystem::path& path, std::string*
         set_error(error, path.string() + " is not an 8 KiB EEPROM save");
         return std::nullopt;
     }
+    return from_sav(raw, error);
+}
+
+std::optional<Image> Image::from_sav(const std::vector<std::uint8_t>& sav, std::string* error) {
+    if (sav.size() != kImageSize) {
+        set_error(error, "not an 8 KiB EEPROM save");
+        return std::nullopt;
+    }
+    std::vector<std::uint8_t> raw = sav;
     for (std::size_t i = 0; i < raw.size(); i += 8) std::reverse(raw.begin() + i, raw.begin() + i + 8);
     return Image(std::move(raw));
 }
@@ -265,9 +277,14 @@ std::optional<Image> Image::blank(const std::vector<std::uint8_t>& rom, std::str
     return image;
 }
 
-bool Image::store(const std::filesystem::path& path, std::string* error) const {
+std::vector<std::uint8_t> Image::sav_bytes() const {
     std::vector<std::uint8_t> raw = bytes_;
     for (std::size_t i = 0; i < raw.size(); i += 8) std::reverse(raw.begin() + i, raw.begin() + i + 8);
+    return raw;
+}
+
+bool Image::store(const std::filesystem::path& path, std::string* error) const {
+    const std::vector<std::uint8_t> raw = sav_bytes();
     std::filesystem::path tmp = path;
     tmp += ".tmp";
     {
@@ -335,6 +352,37 @@ bool Image::erase(int slot, std::string* error) {
     write_marker(bytes_, kFirstFileDescriptor + slot, kSigDeleted);
     write_marker(bytes_, slot, kSigDeleted);
     return true;
+}
+
+bool Image::set_current_file(int slot, std::string* error) {
+    if (!slot_in_range(slot, error)) return false;
+    const std::uint8_t* current = find_valid(bytes_, kSystemDescriptor);
+    if (!current) {
+        set_error(error, "the save has no valid system block");
+        return false;
+    }
+    std::uint8_t data[0x10];
+    std::memcpy(data, current, sizeof(data));
+    data[kCurrentFileOffset] = static_cast<std::uint8_t>(slot);
+    write_valid(bytes_, kSystemDescriptor, data);
+    return true;
+}
+
+void Image::copy_file(const Image& from, int slot) {
+    if (slot < 0 || slot >= kSlotCount) return;
+    for (int index : {slot, kFirstFileDescriptor + slot}) {
+        const Descriptor& d = kDescriptors[index];
+        for (std::size_t base : {std::size_t{0}, kMirror}) {
+            const auto copy = [&](std::uint16_t offset, std::size_t size) {
+                if (offset == kNone) return;
+                std::memcpy(bytes_.data() + base + offset, from.bytes_.data() + base + offset, size);
+            };
+            copy(d.header_a, kHeaderSize);
+            copy(d.header_b, kHeaderSize);
+            copy(d.data_a, d.size);
+            copy(d.data_b, d.size);
+        }
+    }
 }
 
 }  // namespace fsr::save

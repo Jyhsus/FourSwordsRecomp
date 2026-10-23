@@ -1,13 +1,17 @@
 // main.cpp — FourSwordsRecomp entry point.
 //
-//   FourSwordsRecomp [--bios <path>] [--rom <path>] [--slot 1-3] [game.toml]
+//   FourSwordsRecomp [--bios <path>] [--rom <path>] [--slot 1-3]
+//                    [--local 1,guest,...] [game.toml]
 //
 // The player supplies their own GBA BIOS and their own USA cartridge dump
 // ("A Link to the Past & Four Swords", game code AZLE). Both are hash-checked
 // before any game code runs. Windowed play opens the recomp-ui launcher first,
 // then the file screen (src/fs_slots_ui.cpp); quitting Four Swords comes back
-// to the launcher (docs/DESIGN.md section 8.1).
+// to the launcher (docs/DESIGN.md section 8.1). The file screen's Multiplayer
+// button starts local split-screen play (src/fs_local.cpp, section 10).
 
+#include <algorithm>
+#include <array>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -79,6 +83,38 @@ std::filesystem::path save_path_argument(const std::vector<std::string>& args) {
 }
 
 #if defined(GBAGAME_RECOMP_UI)
+// Removes "--local LIST" from args (section 10): 2-4 comma-separated players,
+// each a file 1-3 or "guest". plan.players stays 0 when absent; false on a
+// bad value.
+bool take_local_argument(std::vector<std::string>& args, fsr::LocalPlan& plan) {
+    plan.players = 0;
+    for (std::size_t i = 1; i < args.size(); ++i) {
+        if (args[i] != "--local") continue;
+        if (i + 1 >= args.size()) return false;
+        const std::string value = args[i + 1];
+        args.erase(args.begin() + static_cast<std::ptrdiff_t>(i),
+                   args.begin() + static_cast<std::ptrdiff_t>(i) + 2);
+        std::size_t start = 0;
+        int players = 0;
+        while (start <= value.size()) {
+            const std::size_t comma = std::min(value.find(',', start), value.size());
+            const std::string item = value.substr(start, comma - start);
+            if (players == fsr::kLocalMaxPlayers) return false;
+            if (item == "guest") {
+                plan.file[players++] = fsr::kGuestFile;
+            } else if (item.size() == 1 && item[0] >= '1' && item[0] <= '3') {
+                plan.file[players++] = item[0] - '1';
+            } else {
+                return false;
+            }
+            start = comma + 1;
+        }
+        plan.players = players;
+        return players >= 2;
+    }
+    return true;
+}
+
 // Same cases in which the launcher seam stays out of the way (headless and
 // scripted runs); the file screen is part of the launcher, so it does too.
 bool interactive(const std::vector<std::string>& args) {
@@ -104,9 +140,12 @@ int main(int argc, char** argv) {
             return 0;
         }
         if (std::strcmp(argv[i], "--help") == 0 || std::strcmp(argv[i], "-h") == 0) {
-            std::printf("FourSwordsRecomp [--bios <path>] [--rom <path>] [--slot 1-3] [game.toml]\n"
+            std::printf("FourSwordsRecomp [--bios <path>] [--rom <path>] [--slot 1-3]\n"
+                        "                 [--local 1,guest,...] [game.toml]\n"
                         "Needs your own GBA BIOS and your own USA AZLE cartridge dump.\n"
-                        "--slot starts that cartridge file directly in Four Swords.\n");
+                        "--slot starts that cartridge file directly in Four Swords.\n"
+                        "--local starts 2-4 linked GBAs in split screen, one file\n"
+                        "(1-3, each at most once) or guest per player.\n");
             return 0;
         }
     }
@@ -134,6 +173,24 @@ int main(int argc, char** argv) {
         fsr::set_boot_slot(slot);
     }
 
+#if defined(GBAGAME_RECOMP_UI)
+    // Section 10: local split-screen multiplayer without the launcher.
+    fsr::LocalPlan local;
+    if (!take_local_argument(args, local)) {
+        std::fprintf(stderr, "--local needs 2 to 4 players: 1, 2, 3 or guest, comma-separated\n");
+        return 1;
+    }
+    if (local.players) {
+        local.save_path = save_path_argument(args);
+        std::array<fsr::save::Slot, fsr::save::kSlotCount> slots{};
+        if (const auto image = fsr::save::Image::load(local.save_path)) slots = image->slots();
+        if (slot >= 0 || !fsr::valid_local_plan(local, slots)) {
+            std::fprintf(stderr, "--local: every file must be in use, and played once; no --slot\n");
+            return 1;
+        }
+    }
+#endif
+
 #if defined(GBAGAME_NETPLAY)
     // Online play: every peer runs all 2-4 virtual GBAs locally and only
     // controller input crosses the network (see docs/DESIGN.md).
@@ -154,6 +211,15 @@ int main(int argc, char** argv) {
     opts.launcher_save_path = kDefaultSave;
 
 #if defined(GBAGAME_RECOMP_UI)
+    if (local.players) {
+        // run_game() checks the assets, then hands them to the local runner.
+        gbarecomp::RunOptions local_opts = opts;
+        local_opts.netplay = fsr::make_local_launch(local);
+        std::vector<char*> av;
+        for (auto& a : args) av.push_back(a.data());
+        return gbarecomp::run_game(static_cast<int>(av.size()), av.data(), local_opts);
+    }
+
     // Launcher -> file screen -> game, and back to the launcher when the
     // player quits Four Swords. run_game() may run more than once per process.
     const bool from_launcher = slot < 0 && interactive(args);
@@ -169,7 +235,20 @@ int main(int argc, char** argv) {
             const int picked = fsr::run_slot_screen(screen);
             if (picked == fsr::kSlotScreenQuit) return 0;
             reopen_launcher = true;
-            if (picked == fsr::kSlotScreenBack) continue;
+            // Online rooms are the launcher's netplay page.
+            if (picked == fsr::kSlotScreenBack || picked == fsr::kSlotScreenOnline) continue;
+            if (picked == fsr::kSlotScreenLocal) {
+                // Section 10: run_game() checks the assets and window settings,
+                // then hands them to the local runner instead of single player.
+                gbarecomp::RunOptions local_opts = opts;
+                local_opts.netplay = fsr::make_local_launch(screen.local);
+                std::vector<char*> av;
+                for (auto& a : run_args) av.push_back(a.data());
+                const int rc = gbarecomp::run_game(static_cast<int>(av.size()), av.data(), local_opts);
+                if (!fsr::quit_to_menu()) return rc;   // window closed, as in single player
+                fsr::set_boot_slot(-1);
+                continue;
+            }
             fsr::set_boot_slot(picked);
         }
         std::vector<char*> av;

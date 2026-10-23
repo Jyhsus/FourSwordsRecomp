@@ -145,10 +145,10 @@ termina en un PC arbitrario. Para ejecuciones largas es mejor `--frames N` con
 `GBARECOMP_INPUT_REPLAY` (líneas `frame,0xKEYINPUT`) y `--dump-png` /
 `--dump-state`.
 
-**Pendiente para el M3:** el código Thumb en IWRAM `0x03006D18`–`0x03006E96`
-sigue pasando por el puente (candidato a tabla de saltos, probablemente el
-código del enlace serie; aún no se ha encontrado de dónde se copia). No hace
-falta con una sola GBA.
+**Resuelto en el M3 (sección 9):** el código Thumb en IWRAM
+`0x03006D18`–`0x03006E96` es el `SoundMainRAM` del driver de sonido m4a,
+declarado ahora como `[[code_copy]]`; el modo de un jugador es totalmente
+estático.
 
 ## 3. Un jugador como en la Anniversary Edition 📋
 
@@ -201,10 +201,10 @@ la latencia se maneja con retardo de entrada o rollback.
 | Paso | Estado |
 |---|---|
 | Netplay compilado, 4 puestos permitidos | ✅ (código) |
-| Verificar el protocolo serie de Four Swords en `GbaLinkHub` (2 consolas, local) | 📋 |
-| 3 y 4 consolas, local | 📋 |
+| Verificar el protocolo serie de Four Swords en `GbaLinkHub` (2 consolas, local) | ✅ (sección 9) |
+| 3 y 4 consolas, local | ✅ (sección 10) |
 | En línea 2 jugadores, luego 3–4 | 📋 |
-| Cada GBA virtual arranca directo en Four Swords (sección 2) | 📋 |
+| Cada GBA virtual arranca directo en Four Swords (sección 2) | ✅ (secciones 9–10) |
 
 Cada jugador necesita su propia ROM y BIOS verificadas, igual que en 2002 cada
 jugador necesitaba su propio cartucho.
@@ -238,14 +238,16 @@ enlazado en `CMakeLists.txt`:
 
 * pide la **ROM USA** y la **BIOS de GBA**, comprueba el SHA-1 y las recuerda;
 * ajustes (vídeo, audio, controles) y pestaña **Netplay** (crear/unirse, 2–4 jugadores);
-* 📋 elección de modo "Un jugador (estilo Anniversary)" / "Multijugador";
+* el botón **Multiplayer** de la pantalla de partidas: Local (pantalla
+  dividida, sección 10) u Online (la pestaña Netplay) ✅; 📋 "Un jugador
+  (estilo Anniversary)";
 * 🔬 un campo opcional para la **Anniversary Edition de DSi**, solo si la sección 5 resulta viable.
 
 ## 7. Hitos
 
 1. **M1 — Arranca:** el ejecutable nativo llega a la pantalla de selección del cartucho.
 2. **M2 — Arranque directo en Four Swords** y lobby estable con una consola.
-3. **M3 — Sesión local de 2 consolas** por el cable emulado (prueba el protocolo). ✅ en un proceso (sección 9); falta el camino de netplay.
+3. **M3 — Sesión local de 2 consolas** por el cable emulado (prueba el protocolo). ✅ en un proceso (sección 9); falta el camino de netplay. Multijugador local en pantalla dividida para 2–4 jugadores: sección 10.
 4. **M4 — Un jugador estilo Anniversary** (seguir, cambiar, silbato).
 5. **M5 — En línea 2 jugadores**, luego **3–4**.
 6. **M6 — Investigación del contenido Anniversary** (viable / no viable).
@@ -513,6 +515,93 @@ ven en las dos pantallas. 2.800 frames de dos GBAs tardan ~13 s.
   recompilada cuente pocos ciclos en esa ruta. Mientras no se sepa, el ajuste
   es un apaño para este juego.
 * La misma prueba por el camino real de netplay (dos procesos por UDP en
-  loopback y después las salas del launcher), 3–4 GBAs (sus tiempos siguen
-  con los valores de referencia) y salir de una partida enlazada (sección
-  8.1).
+  loopback y después las salas del launcher) y salir de una partida enlazada
+  (sección 8.1). 3–4 GBAs se enlazan con el mismo valor: sección 10.
+
+## 10. Multijugador local en pantalla dividida ✅ (2–4 jugadores)
+
+**Resultado (23 oct 2026):** la pantalla de partidas (sección 8.1) tiene un
+botón **Multiplayer** con dos opciones:
+
+* **Local:** 2, 3 o 4 jugadores en este ordenador. Cada jugador elige una
+  partida en uso o **Guest** (invitado). El juego ejecuta esas GBAs virtuales
+  en este proceso con un cable `GbaLinkHub`, como `FourSwordsLinkProbe`
+  (sección 9), y las muestra en una ventana: dos lado a lado (480×160), tres
+  o cuatro en una cuadrícula 2×2 (480×320; con tres, la cuarta casilla queda
+  en negro). El jugador 1 juega con el teclado y el primer mando, el jugador N
+  con el mando N (orden de SDL, mismos botones que en un jugador). El audio es
+  el del jugador 1; el sonido de las demás GBAs se descarta. Salir de Four
+  Swords vuelve al launcher; cerrar la ventana cierra el programa, como en un
+  jugador.
+* **Online:** vuelve al launcher, cuya pestaña Netplay tiene las salas
+  (sección 4).
+
+Lo mismo sin el launcher, para pruebas:
+`FourSwordsRecomp --local 2,guest [--save-path x.sav] game.toml` (2–4
+jugadores separados por comas, cada uno `1`–`3` o `guest`). El runner es
+`src/fs_local.cpp`. Se le pasa a `run_game()` como un lanzamiento
+`RunOptions::netplay` sin red, así que el runtime sigue comprobando antes la
+ROM, la BIOS y los ajustes de ventana. Ayudas de depuración:
+`FSR_LOCAL_INPUTS` (un guion de botones de la sonda, sumado a los controles
+reales) y, con `--frames N`, `FSR_LOCAL_DUMP` (un BMP del último frame
+dividido).
+
+**Partidas (decidido el 23 oct 2026): fusión por ranura.** Si no, cada GBA
+tendría su copia completa de la EEPROM del cartucho, y la última en escribir
+el `.sav` borraría el progreso de las demás. En su lugar:
+
+1. Sigue habiendo un solo `.sav` (sección 8.1). Cada GBA arranca con una
+   copia, con el archivo actual del bloque de sistema (byte 4) puesto a la
+   partida de su jugador. El hook de arranque de `--slot` deja entonces el
+   byte 4 como está (`fsr::kBootSavedFile`), así que cada GBA arranca su
+   propia partida.
+2. Una partida la juega como mucho una GBA; la pantalla y `--local` rechazan
+   repetirla. Hay 3 partidas y hasta 4 jugadores, así que el resto juega como
+   **Guest**: un guardado de primer arranque (`Image::blank()` con la ROM del
+   jugador) con una sola partida llamada `Guest2`…`Guest4`, que nunca se
+   escribe en disco.
+3. Cuando la EEPROM de una GBA se ha escrito y luego queda 60 frames sin
+   cambios (el juego escribe una partida en muchos bloques de 8 bytes a lo
+   largo de varios frames), y otra vez al salir, solo se copia al `.sav` la
+   partida de esa GBA: los descriptores *i* (su parte de A Link to the Past) y
+   4+*i* (su cabecera de Four Swords), cabeceras de estado y datos, en los dos
+   espejos (`fsr::save::Image::copy_file()`). La firma, el bloque de sistema y
+   las demás partidas quedan como están en disco.
+
+`tests/fs_save_test.cpp` cubre `copy_file()` (se fusiona una partida y las
+demás no cambian) y `set_current_file()` (byte 4 en los dos espejos, con la
+suma válida al volver a cargar).
+
+**Comprobado:**
+
+* `--local 2,guest` con `tests/m3_two_gba.inputs`: las dos GBAs se enlazan y
+  entran juntas en la partida, lado a lado, a velocidad real (2.800 frames en
+  47,6 s, unos 59 fps).
+* Cuatro jugadores (`--local 2,guest,guest,guest`) y tres
+  (`--local guest,2,guest`) con los mismos botones en todas las GBAs: todos
+  entran en la misma partida, y cada pantalla sigue a su propio Link.
+* `FourSwordsLinkProbe` da el mismo hash final que en la sección 9.
+
+**Hallazgo: 3–4 GBAs necesitaron el mismo tiempo de handshake.** Con los
+tiempos de referencia (8.376 ciclos para tres GBAs, 10.486 para cuatro) todas
+las GBAs esperan para siempre en "Linking with other systems…", igual que dos
+en la sección 9. Con 5.243 ciclos se enlazan y juegan. En un cable real cuatro
+GBAs tardan más que dos, así que esto apunta a nuestros tiempos en la ruta del
+padre (la CPU recompilada llega demasiado pronto a `0x0800C576`) más que al
+cable. `src/fs_boot.cpp` fija ahora 5.243 para 2, 3 y 4 GBAs. La causa de
+fondo sigue abierta (sección 9).
+
+**Pendiente:**
+
+* Ninguna ejecución de 2.800 frames escribe la EEPROM, así que la fusión solo
+  la comprueban las pruebas unitarias. Falta una prueba real: terminar un
+  nivel en una partida local y confirmar que las medallas y el progreso de
+  esa partida llegan al `.sav`.
+* El flujo con ventana (launcher → partidas → Multiplayer → Local) está
+  compilado y sus piezas se han ejecutado, pero nadie lo ha recorrido aún con
+  clics.
+* El juego en línea (`multiplayer_runner.cpp`, upstream) nunca escribe el
+  `.sav` de un jugador, solo checkpoints de la pareja, así que el progreso en
+  línea se pierde. El arreglo es el mismo que aquí, en el motor (un PR
+  upstream).
+* Los mandos se asignan en el orden de SDL; aún no se pueden reordenar.

@@ -59,7 +59,7 @@ constexpr const char* kExitHookId = "fsr.exit";
 constexpr std::uint32_t kFourSwordsExit = 0x08030018u;
 constexpr std::uint32_t kFadeBusy = 0x03000520u;
 
-constexpr std::uint32_t kTwoPlayerTransferCycles = 5243;  // 36 bits at 115,200 bps
+constexpr std::uint32_t kHandshakeTransferCycles = 5243;  // 2 GBAs' 36 bits at 115,200 bps
 
 std::atomic<int> g_boot_slot{-1};
 std::atomic<bool> g_quit_to_menu{false};
@@ -90,7 +90,7 @@ int on_four_swords_exit(std::uint32_t /*addr*/, int /*thumb*/, ArmCpuState* /*cp
 int on_screen_reset(std::uint32_t /*addr*/, int /*thumb*/, ArmCpuState* cpu) {
     const int slot = g_boot_slot.load(std::memory_order_relaxed);
     if (slot < 0 || (cpu->R[14] & ~1u) != kAgbMainScreenResetReturn) return 0;
-    bus_write_u8(kCurrentFile, static_cast<std::uint8_t>(slot));
+    if (slot != fsr::kBootSavedFile) bus_write_u8(kCurrentFile, static_cast<std::uint8_t>(slot));
     bus_write_u8(kGameMode, kModeChooseGame);
     bus_write_u8(kGameSubState, 0);
     bus_write_u8(kModeAux, 0);
@@ -124,7 +124,11 @@ const bool registered = [] {
     // longer busy. With the 5,755-cycle reference time (36 bits plus a
     // timeout) it is still busy and both GBAs wait forever on "Linking with
     // other systems". 5,243 cycles is the 36 bits alone at 115,200 bps.
-    gba::GbaLinkHub::set_multiplayer_transfer_cycles(3, 2, kTwoPlayerTransferCycles);
+    // Three and four GBAs (8,376 and 10,486 by default) stall the same way and
+    // link with the same value (section 10), so the gap is not the cable's.
+    for (std::size_t players = 2; players <= 4; ++players) {
+        gba::GbaLinkHub::set_multiplayer_transfer_cycles(3, players, kHandshakeTransferCycles);
+    }
     return true;
 }();
 
@@ -133,7 +137,7 @@ const bool registered = [] {
 namespace fsr {
 
 void set_boot_slot(int slot) {
-    g_boot_slot.store(slot >= 0 && slot < 3 ? slot : -1);
+    g_boot_slot.store(slot >= 0 && slot <= kBootSavedFile ? slot : -1);
     g_quit_to_menu.store(false);
     enable_hooks();
 }

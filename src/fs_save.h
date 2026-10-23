@@ -46,12 +46,16 @@ public:
     // Reads a .sav. Fails on a missing file or a size other than kImageSize.
     static std::optional<Image> load(const std::filesystem::path& path,
                                      std::string* error = nullptr);
+    // Same, from .sav bytes (GbaSave::eeprom_bytes()).
+    static std::optional<Image> from_sav(const std::vector<std::uint8_t>& sav,
+                                         std::string* error = nullptr);
     // The state the game writes on its first boot with an erased EEPROM. The
     // fixed strings come from the player's ROM, never from this repository.
     static std::optional<Image> blank(const std::vector<std::uint8_t>& rom,
                                       std::string* error = nullptr);
 
     bool store(const std::filesystem::path& path, std::string* error = nullptr) const;
+    std::vector<std::uint8_t> sav_bytes() const;  // .sav order, for GbaSave
 
     std::array<Slot, kSlotCount> slots() const;
 
@@ -61,6 +65,14 @@ public:
     bool create(int slot, std::string_view utf8_name, std::string* error = nullptr);
     bool rename(int slot, std::string_view utf8_name, std::string* error = nullptr);
     bool erase(int slot, std::string* error = nullptr);
+
+    // Sets the system block's current file (byte 4), which AgbMain loads.
+    bool set_current_file(int slot, std::string* error = nullptr);
+
+    // Copies one file's blocks (its A Link to the Past part and its Four
+    // Swords header: status headers and data, both mirrors) from `from`.
+    // Local multiplayer merges each GBA's own file back with it (section 10).
+    void copy_file(const Image& from, int slot);
 
     const std::vector<std::uint8_t>& bytes() const { return bytes_; }  // game order
 

@@ -22,7 +22,7 @@ step also changes a file there).
 | Patch | Why | Upstream |
 |---|---|---|
 | `gbarecomp/0001-runtime-request-quit.patch` | `gbarecomp::request_quit()` ends `run_game()` cleanly from a hook, so quitting Four Swords returns to the launcher with the save flushed (docs/DESIGN.md §8.1) | PR pending |
-| `gbarecomp/0002-link-hub-transfer-time-override.patch` | `GbaLinkHub::set_multiplayer_transfer_cycles()` lets a game shorten a cable transfer; Four Swords uses 5,243 cycles for two GBAs, or its lobby handshake never finishes (docs/DESIGN.md §9) | PR pending |
+| `gbarecomp/0002-link-hub-transfer-time-override.patch` | `GbaLinkHub::set_multiplayer_transfer_cycles()` lets a game shorten a cable transfer; Four Swords uses 5,243 cycles for 2-4 GBAs, or its lobby handshake never finishes (docs/DESIGN.md §9-10) | PR pending |
 
 When a patch is merged upstream, update the submodule past it and delete the
 patch file, its row here and the CMake check.

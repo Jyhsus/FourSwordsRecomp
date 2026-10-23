@@ -13,6 +13,10 @@
 namespace gbarecomp { struct GbaInstance; }
 
 namespace fsr {
+// set_boot_slot(): boot the file each GBA's system block names (local
+// multiplayer gives every GBA its own; docs/DESIGN.md section 10).
+constexpr int kBootSavedFile = 3;
+
 // Boot straight into file slot 0-2 (-1 = show file select). Call before
 // run_game(); applies to every virtual GBA.
 void set_boot_slot(int slot);
