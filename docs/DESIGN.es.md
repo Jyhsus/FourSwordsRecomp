@@ -64,12 +64,22 @@ Tras elegir archivo, la selección de archivo llama a `set_game_mode(6)`. En
 una GBA conectada; con una sola muestra antes el aviso "This is a Multi-Pak
 multiplayer game", y pulsando A se llega igualmente a la intro de Four Swords.
 
-**Implementación:** `src/fs_boot.cpp` engancha `set_game_mode` (declarado como
-`[[mod_function_hook]]` en `game.toml`). Una petición del modo 6 se convierte
-en una llamada de cola a `start_four_swords`, así que al elegir archivo se va
-directo a la intro de Four Swords en todas las GBA virtuales.
-`FSR_STOCK_MENU=1` desactiva el hook para ver la pantalla original; falta la
-opción en el launcher.
+**Implementación:** `src/fs_boot.cpp` engancha el manejador del modo 6
+`0x0803074C` (declarado como `[[mod_function_hook]]` en `game.toml`). En su
+primer frame, el manejador se convierte en una llamada de cola a
+`start_four_swords`, así que al elegir archivo se va directo a la intro de Four
+Swords en todas las GBA virtuales. `FSR_STOCK_MENU=1` desactiva el hook para
+ver la pantalla original; falta la opción en el launcher.
+
+La primera versión enganchaba `set_game_mode`. Una revisión antes de fusionar
+encontró que se le escapaba una entrada al modo 6: `AgbMain` (`0x0800B084`)
+llama a `0x08068108` al arrancar. Si IWRAM contiene una marca de traspaso
+(`0x54463453` en `0x03000000` más una cadena de 7 bytes), que deja un reinicio
+por software, escribe el modo 6 en línea (`0x0803072C`) sin llamar a
+`set_game_mode`. Un arranque en frío nunca tiene la marca. Enganchar el
+manejador cubre todas las rutas; la entrada en línea se comprobó escribiendo
+modo 6 / subestado 0 por TCP en la selección de archivo, y empezó la intro de
+Four Swords.
 
 **Cobertura estática necesaria:** a las tablas de modos solo se llega por
 punteros a función, así que se declaran como `[[jump_table]]` en `game.toml`.
@@ -77,20 +87,21 @@ Al sembrarlas apareció un problema del recompilador: las tablas de saltos
 auto-detectadas sin cota ("BX walked") se medían más allá de su final y
 sembraban "funciones" ARM en datos que acababan en el relleno `0xFF` de la ROM
 (~490.000 funciones, ~20 GB de RAM). `tools/audit_jump_tables.py` las recorta;
-su salida es el overlay `symbols/AZLE_symbols.toml`. Resultado: 33.270
-funciones, generadas en ~1 min. Conviene corregirlo también upstream.
+su salida es el overlay `symbols/AZLE_symbols.toml`. Resultado: unas 33.000
+funciones (33.465 con todas las semillas del M2), generadas en ~1 min. Conviene corregirlo también upstream.
 
 **¿Es segura la llamada de cola?** `start_four_swords` no lee `r0`–`r3`: su
 primera instrucción tras `push {lr}` es `bl 0x0800BED8`, que escribe `r0` y
-`r1` antes de leerlos. Así que da igual que el hook entre con `r0 = 6` en vez
-del número de consolas que deja ahí el camino original. Hay tres llamadas que
-piden el modo 6, y el hook cambia las tres:
+`r1` antes de leerlos. Así que da igual que el hook entre con lo que deje en
+`r0` el bucle principal en vez del número de consolas que deja ahí el camino
+original. Estas rutas entran en el modo 6, y el hook las cambia todas:
 
-| Llamada | Contexto | Efecto del hook |
+| Entrada | Contexto | Efecto del hook |
 |---|---|---|
-| `0x0800F87A` | Selección de archivo, tras elegir partida | El buscado: directo a Four Swords |
-| `0x0803003E` | Subestado del modo 5 (tabla `0x084278DC`), reinicializa y vuelve a "CHOOSE A GAME" | Vuelve a Four Swords en su lugar (correcto en una build solo de Four Swords) |
-| `0x080310A6` | Subestado del aviso Multi-Pak (tabla `0x08427980`), justo tras su propia llamada a `start_four_swords` | Inalcanzable con el hook activo: el modo 6 nunca se ejecuta |
+| `0x0800F87A` `set_game_mode(6)` | Selección de archivo, tras elegir partida | El buscado: directo a Four Swords |
+| `0x0803003E` `set_game_mode(6)` | Subestado del modo 5 (tabla `0x084278DC`), reinicializa y vuelve a "CHOOSE A GAME" | Vuelve a Four Swords en su lugar (correcto en una build solo de Four Swords) |
+| `0x080310A6` `set_game_mode(6)` | Subestado del aviso Multi-Pak (tabla `0x08427980`), justo tras su propia llamada a `start_four_swords` | Inalcanzable con el hook activo: los subestados del modo 6 nunca se ejecutan |
+| `0x0803072C` escritura en línea | `AgbMain` tras un reinicio por software con la marca de traspaso en IWRAM | Directo a Four Swords |
 
 **Lobby alcanzado y estable** (22 oct 2026, Windows, sin ventana). Las
 entradas se reprodujeron con `GBARECOMP_INPUT_REPLAY` (crear partida, elegirla,
@@ -106,9 +117,9 @@ que acababa en `generated call-return stack overflow` (abort) durante la intro.
 El runtime apila una dirección de retorno en cada `BL` y la saca al volver.
 Los savestates mostraban la pila llenándose de `0x08134A66` y `0x08134A7A`,
 las direcciones de retorno de dos trampolines de m4a que llaman a
-`*(0x02031AB8)` / `*(0x02031ABC)`. Son las entradas 35/36 de la tabla de saltos
-del driver de sonido m4a, que el driver copia a RAM, así que el buscador nunca
-vio los destinos. Todo el driver se ejecutaba en el puente de self-heal,
+`*(0x02031AB8)` / `*(0x02031ABC)`. Son las entradas 34/35 (contando desde 0)
+de la tabla de saltos del driver de sonido m4a, cuya copia en RAM empieza en
+`0x02031A30`, así que el buscador nunca vio los destinos. Todo el driver se ejecutaba en el puente de self-heal,
 mezclado con trampolines nativos, y esos retornos nunca se sacaban. El PC del
 aviso (`0x08009476`, luego `0x08034FE8`) solo es la llamada que se estaba
 apilando cuando la pila se llenó. Esa misma mezcla hacía abortar el puente con
@@ -117,11 +128,16 @@ sonaban efectos. La fuga es anterior al hook: los savestates de la build
 original ya tenían 80 entradas.
 
 Arreglo en `game.toml`: la tabla de saltos de m4a (`0x083C2654`, 36
-entradas), la tabla de manejadores de IRQ (`0x08427360`, 13 entradas; la de
-VBlank apunta a código en EWRAM y se deja fuera), `m4aSoundMain`
-(`0x081346FC`), `SoundMain` (`0x081339D4`), `MPlayMain` (`0x08134074`),
-`0x0800B7FC`, y un `[[code_copy]]` más `[[extra_func]]` para `0x03005AE0`.
-Después de eso ya no se interpreta ninguna dirección de la ROM.
+entradas), la tabla de manejadores de IRQ (`0x08427360`, 12 entradas, copiada
+por DMA a `0x03000B70` en `0x0800B6D0`; la de VBlank, justo antes, apunta a
+código en EWRAM y se deja fuera), `m4aSoundMain` (`0x081346FC`), `SoundMain`
+(`0x081339D4`), `MPlayMain` (`0x08134074`), `0x0800B7FC`, un `[[code_copy]]`
+más `[[extra_func]]` para `0x03005AE0`, y el grupo de callbacks de
+`0x0842757C` (3 entradas). Después de eso ya no se interpreta ninguna
+dirección de la ROM en la ruta de Four Swords (comprobado con un registro de
+misses limpio durante la ejecución de 40000 frames). La ruta original de A Link
+to the Past sigue interpretando muchas funciones de la ROM; ese juego queda
+fuera del alcance.
 
 **Nota sobre pruebas:** avanzar frame a frame por TCP (`run_frames`) destapaba
 antes estos problemas del puente que la ejecución libre, porque cada paso

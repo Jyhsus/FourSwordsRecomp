@@ -44,6 +44,6 @@ Windows (verified 22 Oct 2026, windowed): `gba_recompile` with MSVC (VS 2026 Bui
 
 ## Milestones (see docs/DESIGN.md)
 - M1 boot to file select ✅
-- **M2 ✅** (launcher toggle pending): `src/fs_boot.cpp` hooks `set_game_mode` and turns mode 6 into a tail call to `start_four_swords`. With one GBA it reaches the lobby ("Linking with other systems…", mode 9 sub 2) and is stable to frame 40000. Details in docs/DESIGN.md §2.
+- **M2 ✅** (launcher toggle pending): `src/fs_boot.cpp` hooks the mode-6 handler `0x0803074C` (not `set_game_mode`, which misses the soft-reset inline entry at `0x0803072C`) and turns it into a tail call to `start_four_swords`. With one GBA it reaches the lobby ("Linking with other systems…", mode 9 sub 2) and is stable to frame 40000. Details in docs/DESIGN.md §2.
 - **M3 next:** IWRAM Thumb code `0x03006D18–0x03006E96` is still bridged (likely link/serial); find its ROM source and declare a `[[code_copy]]`.
 - M3 two local consoles over `GbaLinkHub` → M4 Anniversary-style single player → M5 online 2–4 → M6 DSi content research (may be impossible).

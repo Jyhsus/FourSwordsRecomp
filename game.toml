@@ -76,9 +76,9 @@ entries_mode = "auto"   # entries carry the Thumb bit; "thumb" would decode at o
 name         = "choose_game_state_handlers"
 
 # m4a (Sappy) sound driver. Its sequencer command handlers are called through
-# a RAM copy of this table (MPlayJumpTableCopy at 0x08133E94 copies it to
-# 0x02031A..; e.g. 0x02031AB8/0x02031ABC hold entries 35/36), so the finder
-# never sees them. Bridged, they leaked call-return entries (0x08134A66 /
+# a RAM copy of this table at 0x02031A30 (a few entries replaced by the game;
+# 0x02031AB8/0x02031ABC are entries 34/35, 0-based), so the finder never sees
+# them. Bridged, they leaked call-return entries (0x08134A66 /
 # 0x08134A7A) until the runtime aborted with a call-return stack overflow.
 [[jump_table]]
 addr         = 0x083C2654
@@ -88,15 +88,27 @@ format       = "abs32"
 entries_mode = "auto"
 name         = "m4a_jump_table"
 
-# IRQ handler table, copied to RAM at 0x0800B6F4. Entry 0 (VBlank) points to
-# EWRAM code (0x02030591) and is left out; the rest are ROM Thumb handlers.
+# IRQ handler table: 13 words at 0x0842735C, DMA-copied to 0x03000B70 by
+# 0x0800B6D0. Entry 0 (VBlank) points to EWRAM code (0x02030591) and is left
+# out; the other 12 are ROM Thumb handlers. 0x08427390 starts another table.
 [[jump_table]]
 addr         = 0x08427360
 stride       = 4
-count        = 13
+count        = 12
 format       = "abs32"
 entries_mode = "auto"
 name         = "irq_handlers_from_hblank"
+
+# Three Thumb callbacks after the null at 0x08427578 (the six before it are
+# already found). 0x08011E5C and 0x080122C0 were bridged on the Four Swords
+# path; no code literal points at this group.
+[[jump_table]]
+addr         = 0x0842757C
+stride       = 4
+count        = 3
+format       = "abs32"
+entries_mode = "auto"
+name         = "callbacks_0842757c"
 
 # m4a entries reached only through RAM pointers or from the VBlank code.
 [[extra_func]]
@@ -132,12 +144,13 @@ name          = "iwram_arm_routine_5ae0"
 addr = 0x03005AE0
 mode = "arm"
 
-# set_game_mode(r0): stores the mode byte and clears the sub-states. Hooked by
-# src/fs_boot.cpp to replace mode 6 ("CHOOSE A GAME") with Four Swords.
+# Mode-6 ("CHOOSE A GAME") handler. Hooked by src/fs_boot.cpp to start Four
+# Swords instead. Hooking set_game_mode (0x0800B5EC) would miss the inline
+# mode-6 write AgbMain does after a soft reset (0x0803072C).
 [[mod_function_hook]]
-addr = 0x0800B5EC
+addr = 0x0803074C
 mode = "thumb"
-note = "set_game_mode; FSR direct boot into Four Swords"
+note = "choose-game mode handler; FSR direct boot into Four Swords"
 
 [runtime]
 debug_port   = 19890

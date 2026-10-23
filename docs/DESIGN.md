@@ -64,11 +64,20 @@ GAME", picking Four Swords calls `start_four_swords` when more than one GBA is
 linked; with one GBA it first shows a "This is a Multi-Pak multiplayer game"
 notice, and pressing A through it still starts the Four Swords intro.
 
-**Implementation:** `src/fs_boot.cpp` hooks `set_game_mode` (declared as a
-`[[mod_function_hook]]` in `game.toml`). A request for mode 6 becomes a tail
-call to `start_four_swords`, so picking a save file goes straight to the Four
-Swords intro on every virtual GBA. `FSR_STOCK_MENU=1` disables the hook to
-show the stock screen; a launcher option is still to do.
+**Implementation:** `src/fs_boot.cpp` hooks the mode-6 handler `0x0803074C`
+(declared as a `[[mod_function_hook]]` in `game.toml`). On its first frame the
+handler becomes a tail call to `start_four_swords`, so picking a save file goes
+straight to the Four Swords intro on every virtual GBA. `FSR_STOCK_MENU=1`
+disables the hook to show the stock screen; a launcher option is still to do.
+
+The first version hooked `set_game_mode` instead. A review before merging found
+that it missed one way into mode 6: `AgbMain` (`0x0800B084`) calls
+`0x08068108` at boot. If IWRAM holds a handoff marker (`0x54463453` at
+`0x03000000` plus a 7-byte string), left there by a soft reset, it writes
+mode 6 inline (`0x0803072C`) without calling `set_game_mode`. A cold boot never
+has the marker. Hooking the handler covers every path; the inline entry was
+checked by writing mode 6 / sub-state 0 over TCP on the file-select screen,
+which started the Four Swords intro.
 
 **Static coverage needed for this:** the mode tables are only reached through
 function pointers, so they are declared as `[[jump_table]]`s in `game.toml`.
@@ -76,20 +85,22 @@ Seeding them exposed a recompiler problem: unbounded ("BX walked")
 auto-detected jump tables were sized past their end, seeding ARM "functions"
 in data that ran into the ROM's `0xFF` padding (~490k functions, ~20 GB of
 RAM). `tools/audit_jump_tables.py` trims them; its output is the overlay
-`symbols/AZLE_symbols.toml`. Result: 33,270 functions, generated in ~1 min.
+`symbols/AZLE_symbols.toml`. Result: about 33,000 functions (33,465 with all
+the M2 seeds), generated in ~1 min.
 This should also be fixed upstream.
 
 **Is the tail call safe?** `start_four_swords` does not read `r0`–`r3`: its
 first instruction after `push {lr}` is `bl 0x0800BED8`, which writes `r0` and
 `r1` before reading them. So it does not matter that the hook enters it with
-`r0 = 6` instead of the link count the stock path leaves there. Three call sites
-request mode 6; the hook changes all of them:
+whatever the main loop left in `r0` instead of the link count the stock path
+leaves there. These paths enter mode 6; the hook changes all of them:
 
-| Call site | Context | Effect of the hook |
+| Entry | Context | Effect of the hook |
 |---|---|---|
-| `0x0800F87A` | File select, after a file is picked | Intended: straight to Four Swords |
-| `0x0803003E` | Mode-5 sub-state (table `0x084278DC`), re-initialises and returns to "CHOOSE A GAME" | Goes back into Four Swords instead (fine for a Four Swords-only build) |
-| `0x080310A6` | Multi-Pak notice sub-state (table `0x08427980`), right after its own `start_four_swords` call | Unreachable while the hook is on: mode 6 never runs |
+| `0x0800F87A` `set_game_mode(6)` | File select, after a file is picked | Intended: straight to Four Swords |
+| `0x0803003E` `set_game_mode(6)` | Mode-5 sub-state (table `0x084278DC`), re-initialises and returns to "CHOOSE A GAME" | Goes back into Four Swords instead (fine for a Four Swords-only build) |
+| `0x080310A6` `set_game_mode(6)` | Multi-Pak notice sub-state (table `0x08427980`), right after its own `start_four_swords` call | Unreachable while the hook is on: the mode-6 sub-states never run |
+| `0x0803072C` inline write | `AgbMain` after a soft reset with the IWRAM handoff marker | Straight to Four Swords |
 
 **Lobby reached and stable** (22 Oct 2026, Windows, headless). Input was
 replayed with `GBARECOMP_INPUT_REPLAY` (create a file, pick it, press A every
@@ -104,9 +115,9 @@ that ended in `generated call-return stack overflow` (abort) during the intro.
 The runtime pushes a return address on every `BL` and pops it when the callee
 returns. Savestates showed the stack filling with `0x08134A66` and
 `0x08134A7A`, the return addresses of two m4a veneers that call
-`*(0x02031AB8)` / `*(0x02031ABC)`. Those are entries 35/36 of the m4a sound
-driver's jump table, which the driver copies to RAM, so the finder never saw
-the targets. The whole driver ran in the self-heal interpreter bridge, mixed
+`*(0x02031AB8)` / `*(0x02031ABC)`. Those are entries 34/35 (0-based) of the
+m4a sound driver's jump table, whose RAM copy starts at `0x02031A30`, so the
+finder never saw the targets. The whole driver ran in the self-heal interpreter bridge, mixed
 with native veneers, and those returns were never popped. The PC in the
 warning (`0x08009476`, later `0x08034FE8`) is just whichever call was being
 pushed when the stack filled. The same mix also made the bridge abort on the
@@ -115,11 +126,14 @@ effects played. The leak came before the hook: savestates from the original
 build already had 80 entries.
 
 Fix in `game.toml`: the m4a jump table (`0x083C2654`, 36 entries), the IRQ
-handler table (`0x08427360`, 13 entries; the VBlank entry points to EWRAM code
-and is left out), `m4aSoundMain` (`0x081346FC`), `SoundMain` (`0x081339D4`),
-`MPlayMain` (`0x08134074`), `0x0800B7FC`, and a `[[code_copy]]` plus
-`[[extra_func]]` for `0x03005AE0`. After that, no ROM address is bridged any
-more.
+handler table (`0x08427360`, 12 entries, DMA-copied to `0x03000B70` by
+`0x0800B6D0`; the VBlank entry before it points to EWRAM code and is left out),
+`m4aSoundMain` (`0x081346FC`), `SoundMain` (`0x081339D4`), `MPlayMain`
+(`0x08134074`), `0x0800B7FC`, a `[[code_copy]]` plus `[[extra_func]]` for
+`0x03005AE0`, and the callback group at `0x0842757C` (3 entries). After that,
+no ROM address is bridged on the Four Swords path (checked with a clean miss
+log over the 40000-frame run). The stock A Link to the Past path still bridges
+many ROM functions; that game is out of scope.
 
 **Testing note:** stepping frame by frame over TCP (`run_frames`) exposed
 these bridge problems sooner than free running, because each step ends at an
