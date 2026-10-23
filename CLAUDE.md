@@ -24,10 +24,16 @@ cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DGBAGAME_RECOMP_UI=OFF 
 ninja -C build FourSwordsRecomp
 ./build/FourSwordsRecomp --no-window --quiet --frames 900 --dump-png f900.png game.toml
 ```
-Windows: `tools/regen.ps1` + Visual Studio 2022 CMake (see README). The windowed build needs SDL2 and `GBAGAME_RECOMP_UI=ON`.
+Windows (verified 22 Oct 2026, windowed): `gba_recompile` with MSVC (VS 2026 Build Tools, generator "Visual Studio 18 2026"); the game with MSYS2 MinGW64 + SDL2 + Ninja (`C:\msys64\mingw64\bin` first on PATH, also at run time). Upstream GBARecomp only supports MinGW for playable exes. Steps in README.
+- The BIOS step rewrites a tracked file in the `gbarecomp` submodule (`src/runtime/generated_bios/`); `git status` shows `m gbarecomp`. Never commit it.
+- Debug loop: `FourSwordsRecomp.exe --no-window --tcp 19890 --save-path <tmp>.sav game.toml`, then line-delimited JSON: `run_frames {n, keyinput}` (KEYINPUT active-low, A=bit0), `read_iwram/read_ewram {addr,len}`, `screenshot`, `savestate_save/load {path}` (Windows path), `quit`. Use a scratch save path so tests don't touch `saves/`.
 
 ## Known facts / gotchas
-- Code lives in `0x08000000–0x0813FFFF`; everything above is data. A whole-ROM `aot_scan` needs more than 6 GB RAM (OOM-killed) because it decodes data as ARM code, so it's disabled in `game.toml`. Re-enable it limited to the code range once there are seeds.
+- Code ends near `0x08138000`; tables and data follow. `aot_scan` stays off: even limited to `0x08000000–0x08140000` it produced ~490k "functions" and ~20 GB RAM.
+- Unbounded ("BX walked") auto jump tables get over-sized and seed ARM junk in data that runs into the `0xFF` padding at `0x0868_0000+`. Symptom: function count jumps from ~33k to ~490k. Fix: `GBARECOMP_JT_REPORT=1` recompile into a scratch dir, then `python tools/audit_jump_tables.py ROM <logs...> > symbols/AZLE_symbols.toml` (the overlay `regen.ps1` loads). Upstream finder bug.
+- `[[jump_table]]` with Thumb pointers needs `entries_mode = "auto"`; `"thumb"` keeps bit 0 and decodes odd PCs.
+- Self-heal bridge entered at a mid-function return address can run away (200M instructions, pc in BIOS IntrWait `0x348`) and abort. Cure: make that code static (seed the pointer table). Also seen: self-heal gcc overlays fail (`g_runtime_resume_pc` undeclared) and windowed `--frames` runs end with `terminate called without an active exception`. Both upstream.
+- Game modes: byte `0x03006D10`, table `0x0842731C`, setter `set_game_mode` `0x0800B5EC`; 8 = file select, 6 = CHOOSE A GAME, 9 = Four Swords, 13 = LttP. `start_four_swords` = `0x08030E0C`. Details in docs/DESIGN.md §2.
 - Save: 64 Kbit EEPROM (`EEPROM_V122` @ `0x08427298`).
 - Boot reaches the Nintendo/Capcom logos (frame ~300) and "CHOOSE A FILE" (frame ~900). The A Link to the Past / Four Swords choice comes **after** file select.
 - Interpreter misses are logged to `recomp_master_misses_AZLE.toml.frag`; review them before merging into `game.toml`.
@@ -36,5 +42,5 @@ Windows: `tools/regen.ps1` + Visual Studio 2022 CMake (see README). The windowed
 
 ## Milestones (see docs/DESIGN.md)
 - M1 boot to file select ✅
-- **M2 next:** find the routine that picks LttP vs Four Swords after file select (TCP debugger `--tcp`, traces), then hook it in `src/fs_boot.cpp` via `[[mod_function_hook]]` so every instance boots into Four Swords.
+- **M2 in progress:** `src/fs_boot.cpp` hooks `set_game_mode` and turns mode 6 into a tail call to `start_four_swords`; picking a file now starts the Four Swords intro (`FSR_STOCK_MENU=1` = stock menu). Next: reach the Four Swords lobby with one GBA and check it's stable; launcher toggle; look into `evicted 511 host-less call-return entries at return_pc=0x08009476` seen during the intro.
 - M3 two local consoles over `GbaLinkHub` → M4 Anniversary-style single player → M5 online 2–4 → M6 DSi content research (may be impossible).

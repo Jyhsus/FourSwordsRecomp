@@ -57,15 +57,24 @@ your machine and is git-ignored.
 
 ## Building (Windows)
 
-Requirements: Git, Python 3.11+, Visual Studio 2022 with *Desktop development
-with C++* and CMake tools, and SDL2 for the windowed build.
+As in GBARecomp's own Windows guide, the recompiler is built with Visual
+Studio's MSVC and the playable game with MSYS2 MinGW-w64.
+
+Requirements: Git, Visual Studio 2022 or 2026 (Build Tools are enough) with
+*Desktop development with C++*, CMake, and [MSYS2](https://www.msys2.org/) with
+the MinGW64 toolchain and SDL2:
+
+```sh
+# in the MSYS2 MINGW64 shell
+pacman -S --needed mingw-w64-x86_64-toolchain mingw-w64-x86_64-cmake mingw-w64-x86_64-ninja mingw-w64-x86_64-SDL2
+```
 
 ```powershell
 git clone --recurse-submodules https://github.com/<your-user>/FourSwordsRecomp.git
 cd FourSwordsRecomp
 
-# 1. Build the recompiler
-cmake -S gbarecomp -B gbarecomp\build -A x64
+# 1. Build the recompiler (MSVC; use "Visual Studio 17 2022" for VS 2022)
+cmake -S gbarecomp -B gbarecomp\build -G "Visual Studio 18 2026" -A x64
 cmake --build gbarecomp\build --config Release --target gba_recompile
 
 # 2. Put your files in place (never committed)
@@ -73,13 +82,22 @@ mkdir roms
 copy "D:\path\to\your\AZLE.gba" roms\zelda_lttp_four_swords_usa.gba
 copy "D:\path\to\your\gba_bios.bin" gbarecomp\bios\gba_bios.bin
 
-# 3. Generate C++ from your ROM (takes several minutes: 8 MiB ROM)
+# 3. Recompile your BIOS once, then generate C++ from your ROM (~2 min)
+cd gbarecomp; .\build\Release\gba_recompile.exe --bios bios\gba_bios.bin --config bios\gba_bios.toml; cd ..
 powershell -ExecutionPolicy Bypass -File tools\regen.ps1
 
-# 4. Build the game
-cmake -S . -B build -A x64
-cmake --build build --config Release
+# 4. Build the game (MinGW64 + SDL2, windowed with the launcher)
+$env:PATH = "C:\msys64\mingw64\bin;$env:PATH"
+cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+cmake --build build --target FourSwordsRecomp
+
+# 5. Run (C:\msys64\mingw64\bin must be on PATH for SDL2.dll and the C++ runtime)
+.\build\FourSwordsRecomp.exe
 ```
+
+Step 3 modifies a tracked placeholder inside the `gbarecomp` submodule
+(`src/runtime/generated_bios/`). That file is derived from your BIOS: never
+commit it.
 
 On Linux/macOS use `tools/regen.sh` and a normal CMake build. The GBARecomp
 [getting-started guide](https://github.com/mstan/gbarecomp/blob/main/docs/GETTING_STARTED.md)
@@ -92,7 +110,7 @@ covers toolchain problems.
 | ROM, BIOS and save type identified; `game.toml` written | ✅ |
 | Whole ROM generated to C++ (1,537 functions; misses are interpreted and cached) | ✅ |
 | M1 — native build boots through the BIOS and the Nintendo/Capcom logos to the file-select screen | ✅ (headless Linux, 22 Oct 2026) |
-| M2 — direct boot into Four Swords | 📋 |
+| M2 — direct boot into Four Swords: picking a save file skips "CHOOSE A GAME" and starts the Four Swords intro (`FSR_STOCK_MENU=1` restores the stock screen) | 🔧 (Windows, 22 Oct 2026; lobby not reached yet) |
 | M3 — two consoles linked locally through the emulated cable | 📋 |
 | M4 — Anniversary-style single player | 📋 |
 | M5 — online 2 players, then 3–4 | 📋 |

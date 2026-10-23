@@ -23,7 +23,9 @@ speculative_literal_harvest = false
 # maps, audio). A whole-ROM AOT scan treats that data as code and needs >6 GB
 # of RAM, so the AOT pointer-table scan is left off for now: discovery starts
 # from the entry point, and anything it misses is interpreted on first use and
-# cached natively by the runtime. Re-enable once seeds/symbols exist:
+# cached natively by the runtime. Limiting it to 0x08000000-0x08140000 is no
+# better: data inside that range still decodes as ~490k "functions" (~20 GB
+# peak, 22 Oct 2026). Callback tables are declared by hand below instead.
 # aot_scan_start = 0x08000000
 # aot_scan_end   = 0x08140000
 static_resume_all = true
@@ -48,6 +50,37 @@ sha1 = "a272055abbbf6c26b0cd54c87395d01699589161"
 type = "eeprom"
 size = 8192
 path = "saves/four_swords_usa.sav"
+
+# Top-level game-mode table, indexed by the byte at 0x03006D10 from the main
+# loop at 0x0800B1B2 and called through _call_via_r0 (0x08135FE8), so the
+# finder cannot see it. Modes seen so far: 8 = file select ("CHOOSE A FILE"),
+# 6 = "CHOOSE A GAME" (0x0803074C), 9 = Four Swords, 13 = A Link to the Past.
+[[jump_table]]
+addr         = 0x0842731C
+stride       = 4
+count        = 14
+format       = "abs32"
+entries_mode = "auto"
+name         = "game_mode_handlers"
+
+# "CHOOSE A GAME" sub-state handlers, indexed by the byte at 0x03005050 from
+# mode 6. Without this table and the one above, picking a file ran these
+# through the self-heal interpreter bridge, which never reached its stop PC
+# and aborted after 200M instructions (pc 0x348, BIOS IntrWait).
+[[jump_table]]
+addr         = 0x08427948
+stride       = 4
+count        = 7
+format       = "abs32"
+entries_mode = "auto"   # entries carry the Thumb bit; "thumb" would decode at odd PCs
+name         = "choose_game_state_handlers"
+
+# set_game_mode(r0): stores the mode byte and clears the sub-states. Hooked by
+# src/fs_boot.cpp to replace mode 6 ("CHOOSE A GAME") with Four Swords.
+[[mod_function_hook]]
+addr = 0x0800B5EC
+mode = "thumb"
+note = "set_game_mode; FSR direct boot into Four Swords"
 
 [runtime]
 debug_port   = 19890

@@ -43,17 +43,45 @@ decompilación [zeldaret/tmc](https://github.com/zeldaret/tmc) y
 más cercanas para nombrar funciones y estructuras. Solo se importan *nombres y
 direcciones*, nunca código decompilado.
 
-## 2. Arrancar directamente en Four Swords 📋
+## 2. Arrancar directamente en Four Swords 🔧
 
 En el cartucho, el jugador elige primero un archivo de guardado ("CHOOSE A FILE")
-y después entre *A Link to the Past* y *Four Swords*. El plan:
+y después entre *A Link to the Past* y *Four Swords*.
 
-1. Con el depurador TCP (`--tcp`) y las trazas de ejecución, encontrar la rutina
-   que lee esa selección y salta a la entrada de Four Swords.
-2. Añadir un hook propio (en `src/fs_boot.cpp`, registrado con
-   `[[mod_function_hook]]` en `game.toml`) que elija Four Swords automáticamente
-   en cada GBA virtual.
-3. Mantener una opción del launcher para ver la pantalla original al validar.
+**Cómo lo hace el cartucho** (encontrado con el depurador TCP, 22 oct 2026):
+
+| Dirección | Qué es |
+|---|---|
+| `0x03006D10` (u8) | Modo de juego actual; el bucle principal en `0x0800B1B2` llama cada frame a `game_mode_handlers[modo]` (tabla `0x0842731C`) |
+| `0x03005050` (u8) | Subestado del modo actual |
+| `0x0800B5EC` | `set_game_mode(r0)`: escribe el modo y pone a cero los subestados |
+| modo 8 / 6 / 9 / 13 | Selección de archivo / "CHOOSE A GAME" (`0x0803074C`) / Four Swords / A Link to the Past |
+| `0x02016D62` (u8) | Cursor de "CHOOSE A GAME": 0 = LttP, 1 = Four Swords |
+| `0x08030E0C` | `start_four_swords`: inicializa Four Swords y llama a `set_game_mode(9)` |
+
+Tras elegir archivo, la selección de archivo llama a `set_game_mode(6)`. En
+"CHOOSE A GAME", elegir Four Swords llama a `start_four_swords` si hay más de
+una GBA conectada; con una sola muestra antes el aviso "This is a Multi-Pak
+multiplayer game", y pulsando A se llega igualmente a la intro de Four Swords.
+
+**Implementación:** `src/fs_boot.cpp` engancha `set_game_mode` (declarado como
+`[[mod_function_hook]]` en `game.toml`). Una petición del modo 6 se convierte
+en una llamada de cola a `start_four_swords`, así que al elegir archivo se va
+directo a la intro de Four Swords en todas las GBA virtuales.
+`FSR_STOCK_MENU=1` desactiva el hook para ver la pantalla original; falta la
+opción en el launcher.
+
+**Cobertura estática necesaria:** a las tablas de modos solo se llega por
+punteros a función, así que se declaran como `[[jump_table]]` en `game.toml`.
+Al sembrarlas apareció un problema del recompilador: las tablas de saltos
+auto-detectadas sin cota ("BX walked") se medían más allá de su final y
+sembraban "funciones" ARM en datos que acababan en el relleno `0xFF` de la ROM
+(~490.000 funciones, ~20 GB de RAM). `tools/audit_jump_tables.py` las recorta;
+su salida es el overlay `symbols/AZLE_symbols.toml`. Resultado: 33.270
+funciones, generadas en ~1 min. Conviene corregirlo también upstream.
+
+**Pendiente del M2:** jugar la intro hasta el lobby de Four Swords con una GBA
+y comprobar que es estable ahí.
 
 ## 3. Un jugador como en la Anniversary Edition 📋
 

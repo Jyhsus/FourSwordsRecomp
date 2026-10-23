@@ -43,17 +43,44 @@ Flagship) right after Four Swords and shares a lot of engine design. The
 references for naming functions and structures. Only *names and addresses*
 may be imported, never decompiled source.
 
-## 2. Boot straight into Four Swords 📋
+## 2. Boot straight into Four Swords 🔧
 
 On the cartridge, the player first picks a save file ("CHOOSE A FILE"), then
-chooses between *A Link to the Past* and *Four Swords*. The plan:
+chooses between *A Link to the Past* and *Four Swords*.
 
-1. Use the TCP debugger (`--tcp`) and execution traces to find the routine that
-   reads the selection and jumps to the Four Swords entry.
-2. Add a game-owned hook (in `src/fs_boot.cpp`, registered through a
-   `[[mod_function_hook]]` in `game.toml`) that selects Four Swords
-   automatically on every virtual GBA.
-3. Keep a launcher option to show the stock select screen for validation.
+**How the cartridge does it** (found with the TCP debugger, 22 Oct 2026):
+
+| Address | What |
+|---|---|
+| `0x03006D10` (u8) | Current game mode; the main loop at `0x0800B1B2` calls `game_mode_handlers[mode]` (table `0x0842731C`) every frame |
+| `0x03005050` (u8) | Sub-state of the current mode |
+| `0x0800B5EC` | `set_game_mode(r0)`: writes the mode and clears the sub-states |
+| mode 8 / 6 / 9 / 13 | File select / "CHOOSE A GAME" (`0x0803074C`) / Four Swords / A Link to the Past |
+| `0x02016D62` (u8) | Cursor on "CHOOSE A GAME": 0 = LttP, 1 = Four Swords |
+| `0x08030E0C` | `start_four_swords`: initialises Four Swords and calls `set_game_mode(9)` |
+
+After a file is picked, file select calls `set_game_mode(6)`. On "CHOOSE A
+GAME", picking Four Swords calls `start_four_swords` when more than one GBA is
+linked; with one GBA it first shows a "This is a Multi-Pak multiplayer game"
+notice, and pressing A through it still starts the Four Swords intro.
+
+**Implementation:** `src/fs_boot.cpp` hooks `set_game_mode` (declared as a
+`[[mod_function_hook]]` in `game.toml`). A request for mode 6 becomes a tail
+call to `start_four_swords`, so picking a save file goes straight to the Four
+Swords intro on every virtual GBA. `FSR_STOCK_MENU=1` disables the hook to
+show the stock screen; a launcher option is still to do.
+
+**Static coverage needed for this:** the mode tables are only reached through
+function pointers, so they are declared as `[[jump_table]]`s in `game.toml`.
+Seeding them exposed a recompiler problem: unbounded ("BX walked")
+auto-detected jump tables were sized past their end, seeding ARM "functions"
+in data that ran into the ROM's `0xFF` padding (~490k functions, ~20 GB of
+RAM). `tools/audit_jump_tables.py` trims them; its output is the overlay
+`symbols/AZLE_symbols.toml`. Result: 33,270 functions, generated in ~1 min.
+This should also be fixed upstream.
+
+**Still open for M2:** play the intro to the Four Swords lobby with one GBA and
+check that it is stable there.
 
 ## 3. Single player like the Anniversary Edition 📋
 
