@@ -65,6 +65,12 @@ int main() {
     check(!valid_name("a_b"), "underscore is not on the grid");
     check(!valid_name("\xC3"), "truncated UTF-8 is invalid");
 
+    const auto& grid = name_characters();
+    check(grid.size() == 112, "the name grid has 112 characters");
+    bool grid_valid = true;
+    for (const auto& c : grid) grid_valid = grid_valid && valid_name(c);
+    check(grid_valid, "every grid character is a valid name");
+
     const auto path = erased_sav();
     auto image = Image::load(path);
     check(image.has_value(), "load an erased 8 KiB save");

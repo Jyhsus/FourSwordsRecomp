@@ -257,7 +257,7 @@ BIOS para el usuario e interfaz estilo Ship of Harkinian.
 
 Estos tres puntos van antes del M3, en este orden.
 
-### 8.1 Partidas en 3 ranuras 🔧 (prioridad)
+### 8.1 Partidas en 3 ranuras ✅ (falta el parche en upstream)
 
 **Problema:** al salir de Four Swords el juego vuelve al modo 6 ("CHOOSE A
 GAME"), y el hook de arranque directo (sección 2, ahora en el manejador del
@@ -360,9 +360,46 @@ para upstream; ver `patches/README.es.md`). Comprobado desde un savestate del
 lobby con el paso 7 forzado: con `--slot` termina con código 0 en ese frame;
 sin él el juego muestra "CHOOSE A GAME".
 
-**Falta:** la pantalla del launcher (lista, crear, renombrar, borrar, jugar) y
-volver a ella cuando `run_game()` termina; enviar el parche a upstream;
-comprobar la salida real con dos GBAs (M3).
+*Pantalla del launcher (23 oct 2026).* Tras el **Play** del launcher
+recomp-ui, `src/fs_slots_ui.cpp` abre una pantalla de partidas: las 3
+partidas con su nombre, y **New file**, **Rename**, **Erase** (avisando de que
+también se borra el progreso de A Link to the Past de esa partida) y **Play**;
+**Back** o Esc vuelve al launcher. Es una ventana pequeña y propia del juego
+(SDL2 + OpenGL + Dear ImGui), compilada en `game_launcher_ui` con el ImGui de
+recomp-ui y pintada con el tema GBA y las fuentes del launcher, así que
+recomp-ui no necesita cambios. El nombre se escribe o se elige en una
+cuadrícula con los 112 caracteres de "ENTER A NAME"
+(`fsr::save::name_characters()`); los caracteres que no están en ella no
+llegan al campo y el campo se detiene en 6. Cada cambio pasa por `fs_save` y
+se guarda al momento (renombrado atómico). Si aún no hay `.sav`, la primera
+partida parte de `Image::blank()`, creado a partir de la ROM que verificó el
+launcher. El `.sav` es el que usará `run_game()`: `--save-path`; si no, el
+`saves/four_swords_usa.sav` de game.toml junto al `.toml`; si no, el nombre
+de la ROM con `.sav`.
+
+`main()` es un bucle: launcher → pantalla de partidas → `run_game()` con esa
+partida (el mismo camino que `--slot`). Si la sesión termina porque el
+jugador salió de Four Swords (`fsr::quit_to_menu()`), el bucle vuelve a abrir
+el launcher (forzado con `--launcher`, para que aparezca aunque esté marcado
+"Skip launcher on boot"). Cerrar una ventana sigue cerrando el programa.
+`run_game()` admite ser llamado otra vez en el mismo proceso (reinicia sus
+hooks de cada sesión al entrar). La pantalla de partidas y el bucle se saltan
+en los mismos casos que el launcher (ejecuciones sin ventana o por script,
+`--rom` explícito, `--no-launcher`, `GBARECOMP_NO_LAUNCHER=1`) y en las
+sesiones de netplay; con `--slot` explícito, salir sigue cerrando el
+programa.
+
+Comprobado en Windows con la build con ventana y un `.sav` de prueba nuevo:
+crear (letras tecleadas, una "É" de la cuadrícula, una tecla fuera de la
+cuadrícula ignorada, el 7.º carácter rechazado), renombrar, borrar, jugar la
+partida 2 (intro de Four Swords sin "CHOOSE A FILE"; `0x03000004` = 1 y el
+nombre en el bloque de sistema), salir desde el lobby (savestate con el paso 7
+forzado) de vuelta al launcher, una segunda vuelta completa en el mismo
+proceso, y cerrar el launcher termina el proceso. `fs_save_test` pasa; sin
+ventana, `--slot` con la salida sigue terminando con código 0.
+
+**Falta:** enviar el parche de `request_quit()` a upstream; comprobar la
+salida real con dos GBAs (M3).
 
 ### 8.2 Sin BIOS para el usuario 📋
 

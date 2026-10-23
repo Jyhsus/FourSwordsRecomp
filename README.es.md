@@ -32,7 +32,7 @@ FourSwordsRecomp busca que el juego original de GBA se pueda jugar de forma nati
 | **Un jugador, estilo Anniversary** | Dos GBAs virtuales en local; controlas un Link y el otro te sigue; cambias con L/R | 📋 planeado |
 | **Multijugador en línea, 2–4 jugadores** | Cada PC ejecuta todas las GBAs virtuales; por la red solo viajan las entradas (netcode con retardo o rollback) | 🔧 framework listo, juego sin probar |
 | **Contenido de la Anniversary Edition** | Solo investigación: la versión de DSi es otro código; quizá convertir *datos* de fases desde el dump del propio jugador | 🔬 puede ser imposible |
-| **Launcher** | El launcher de GBARecomp: pide la ROM USA y la BIOS, las verifica, lobby de netplay | 🔧 conectado, sin probar |
+| **Launcher** | El launcher de GBARecomp: pide la ROM USA y la BIOS, las verifica, lobby de netplay; después, una pantalla para crear, renombrar, borrar y jugar las 3 partidas; al salir de Four Swords se vuelve a él | ✅ un jugador (Windows); netplay sin probar |
 
 El razonamiento detallado de cada objetivo está en **[docs/DESIGN.es.md](docs/DESIGN.es.md)**.
 

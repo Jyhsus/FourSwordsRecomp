@@ -114,7 +114,8 @@ endif()
 # ── Launcher (recomp-ui): ROM/BIOS picker with SHA-1 check, settings, netplay lobby ──
 if(GBAGAME_RECOMP_UI)
     include(${RECOMP_UI_ROOT}/recomp_ui.cmake)
-    add_library(game_launcher_ui STATIC src/game_launcher_boot.cpp)
+    # The file screen (section 8.1) uses the launcher's SDL2 + ImGui build.
+    add_library(game_launcher_ui STATIC src/game_launcher_boot.cpp src/fs_slots_ui.cpp)
     target_include_directories(game_launcher_ui PRIVATE
         "${GBARECOMP_ROOT}/src/runtime" "${GBARECOMP_ROOT}/src/gba" src)
     target_compile_definitions(game_launcher_ui PRIVATE GBARECOMP_ENABLE_MODS=1)

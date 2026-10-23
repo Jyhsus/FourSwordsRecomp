@@ -251,7 +251,7 @@ the player, and the Ship of Harkinian-style interface.
 
 These three items come before M3, in this order.
 
-### 8.1 Saves in 3 slots 🔧 (priority)
+### 8.1 Saves in 3 slots ✅ (upstream patch pending)
 
 **Problem:** when the player leaves Four Swords, the game goes back to mode 6
 ("CHOOSE A GAME"), and the direct-boot hook (section 2, now on the mode-6
@@ -349,9 +349,42 @@ as the upstream PR; see `patches/README.md`). Checked from a lobby savestate
 with step 7 forced: `--slot` ends with exit code 0 in that frame; without it
 the game shows "CHOOSE A GAME".
 
-**Still to do:** the launcher screen (list, create, rename, erase, play) and
-looping back to it when `run_game()` returns; sending the patch upstream;
-checking the real quit with two GBAs (M3).
+*Launcher screen (23 Oct 2026).* After the recomp-ui launcher's **Play**,
+`src/fs_slots_ui.cpp` opens a file screen: the 3 files with their names, and
+**New file**, **Rename**, **Erase** (with a warning that A Link to the Past
+progress in that file goes too) and **Play**; **Back** or Esc returns to the
+launcher. It is the game's own small SDL2 + OpenGL + Dear ImGui window,
+compiled into `game_launcher_ui` against recomp-ui's ImGui and painted with the
+launcher's GBA theme and fonts, so recomp-ui needs no change. Names are typed
+or picked from a grid of the 112 characters of "ENTER A NAME"
+(`fsr::save::name_characters()`); characters off the grid never reach the
+field and the field stops at 6. Every edit goes through `fs_save` and is
+stored at once (atomic rename). With no `.sav` yet, the first file starts
+from `Image::blank()` built from the ROM the launcher verified. The `.sav` is
+the one `run_game()` will use: `--save-path`, else game.toml's
+`saves/four_swords_usa.sav` next to the `.toml`, else the ROM name with
+`.sav`.
+
+`main()` loops: launcher → file screen → `run_game()` with that file (same
+path as `--slot`). When the session ends because the player quit Four Swords
+(`fsr::quit_to_menu()`), the loop opens the launcher again (forced with
+`--launcher`, so it also appears with "Skip launcher on boot" set). Closing a
+window still quits the program. `run_game()` supports being called again in
+the same process (it resets its per-run hooks on entry). The file screen and
+the loop are skipped in the same cases as the launcher (headless and scripted
+runs, explicit `--rom`, `--no-launcher`, `GBARECOMP_NO_LAUNCHER=1`) and for
+netplay sessions; an explicit `--slot` keeps ending the program on quit.
+
+Checked on Windows with the windowed build and a fresh scratch `.sav`: create
+(typed letters, a grid "É", an off-grid key ignored, the 7th character
+refused), rename, erase, play file 2 (Four Swords intro with no "CHOOSE A
+FILE"; `0x03000004` = 1 and the name in the system block), quit from the lobby
+(savestate with step 7 forced) back to the launcher, a second full round in the
+same process, and closing the launcher ends the process. `fs_save_test`
+passes; headless `--slot` with the quit still exits with code 0.
+
+**Still to do:** sending the `request_quit()` patch upstream; checking the
+real quit with two GBAs (M3).
 
 ### 8.2 No BIOS needed by the player 📋
 

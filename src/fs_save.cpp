@@ -209,6 +209,29 @@ bool valid_name(std::string_view utf8) {
     return encode_name(utf8, encoded, nullptr);
 }
 
+const std::vector<std::string>& name_characters() {
+    static const std::vector<std::string> chars = [] {
+        std::vector<std::string> out;
+        auto add = [&out](char32_t c) {
+            std::string s;
+            append_utf8(s, c);
+            out.push_back(std::move(s));
+        };
+        for (char32_t c = 'A'; c <= 'Z'; ++c) add(c);
+        for (char32_t c = 'a'; c <= 'z'; ++c) add(c);
+        for (char32_t c = '0'; c <= '9'; ++c) add(c);
+        for (char32_t c : std::u32string_view(U" '-:!?,.")) add(c);
+        for (char32_t lower : {char32_t{0}, char32_t{0x20}}) {
+            for (char32_t c = 0xC0; c <= 0xDC; ++c) {
+                if (grid_byte(c + lower)) add(c + lower);
+            }
+            add(lower ? U'œ' : U'Œ');
+        }
+        return out;
+    }();
+    return chars;
+}
+
 std::optional<Image> Image::load(const std::filesystem::path& path, std::string* error) {
     std::ifstream in(path, std::ios::binary);
     if (!in) {

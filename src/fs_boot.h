@@ -17,6 +17,10 @@ namespace fsr {
 // run_game(); applies to every virtual GBA.
 void set_boot_slot(int slot);
 
+// True when the last run_game() ended because the player quit Four Swords
+// (only with a boot slot set). Cleared by set_boot_slot().
+bool quit_to_menu();
+
 // Called for every virtual GBA a netplay/local-co-op session creates.
 void setup_netplay_instance(gbarecomp::GbaInstance& instance);
 }

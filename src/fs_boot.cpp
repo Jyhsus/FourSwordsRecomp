@@ -59,6 +59,7 @@ constexpr std::uint32_t kFourSwordsExit = 0x08030018u;
 constexpr std::uint32_t kFadeBusy = 0x03000520u;
 
 std::atomic<int> g_boot_slot{-1};
+std::atomic<bool> g_quit_to_menu{false};
 
 int on_choose_game(std::uint32_t /*addr*/, int /*thumb*/, ArmCpuState* cpu) {
     if (bus_read_u8(kGameSubState) == 0) return 0;  // let sub-state 0 load the file
@@ -72,6 +73,7 @@ int on_four_swords_exit(std::uint32_t /*addr*/, int /*thumb*/, ArmCpuState* /*cp
     if (g_boot_slot.load(std::memory_order_relaxed) >= 0) {
         // Started from the launcher: end the session at the frame boundary;
         // run_game() flushes the save on its way out.
+        g_quit_to_menu.store(true);
         gbarecomp::request_quit();
     } else {
         // No launcher to return to: show the stock "CHOOSE A GAME" instead of
@@ -121,7 +123,12 @@ namespace fsr {
 
 void set_boot_slot(int slot) {
     g_boot_slot.store(slot >= 0 && slot < 3 ? slot : -1);
+    g_quit_to_menu.store(false);
     enable_hooks();
+}
+
+bool quit_to_menu() {
+    return g_quit_to_menu.load();
 }
 
 void setup_netplay_instance(gbarecomp::GbaInstance& /*instance*/) {

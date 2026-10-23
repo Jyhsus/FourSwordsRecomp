@@ -37,6 +37,10 @@ struct Slot {
 // has 1 to kNameMax characters.
 bool valid_name(std::string_view utf8);
 
+// Every character on the name-entry grid, one UTF-8 string each: upper case,
+// lower case, digits, punctuation, then the accented letters.
+const std::vector<std::string>& name_characters();
+
 class Image {
 public:
     // Reads a .sav. Fails on a missing file or a size other than kImageSize.

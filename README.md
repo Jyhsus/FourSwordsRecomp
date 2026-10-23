@@ -32,7 +32,7 @@ FourSwordsRecomp aims to make the original GBA game playable natively on PC:
 | **Single player, Anniversary style** | Two virtual GBAs run locally; you control one Link, the other follows; swap with L/R | 📋 planned |
 | **Online multiplayer, 2–4 players** | Every PC runs all virtual GBAs; only controller inputs travel over the network (delay or rollback netcode) | 🔧 framework ready, game untested |
 | **Anniversary Edition content** | Research only: the DSi version is different code; possibly convert stage *data* from the player's own dump | 🔬 may be impossible |
-| **Launcher** | GBARecomp's launcher: asks for the USA ROM + BIOS, verifies them, netplay lobby | 🔧 wired, untested |
+| **Launcher** | GBARecomp's launcher: asks for the USA ROM + BIOS, verifies them, netplay lobby; then a file screen to create, rename, erase and play the 3 save files; quitting Four Swords returns to it | ✅ single player (Windows); netplay untested |
 
 The detailed reasoning for each goal is in **[docs/DESIGN.md](docs/DESIGN.md)**.
 
