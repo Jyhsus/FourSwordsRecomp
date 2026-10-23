@@ -144,6 +144,97 @@ name          = "iwram_arm_routine_5ae0"
 addr = 0x03005AE0
 mode = "arm"
 
+# The other ARM routines AgbMain copies to IWRAM with CpuSet (literal pool
+# 0x0800B158-0x0800B180; each checked byte for byte against IWRAM). Single
+# player reached them through the self-heal bridge; linked play has no bridge
+# and stopped at 0x03000530 when Four Swords entered mode 5.
+[[code_copy]]
+runtime_start = 0x03000530
+source_start  = 0x08008FA4
+size          = 0x300
+name          = "iwram_arm_0530"   # control 0x040000C0
+
+[[extra_func]]
+addr = 0x03000530
+mode = "arm"
+
+[[code_copy]]
+runtime_start = 0x03000E40
+source_start  = 0x080007C4
+size          = 0x100
+name          = "iwram_arm_0e40"   # control 0x04000040
+
+[[extra_func]]
+addr = 0x03000E40
+mode = "arm"
+
+[[code_copy]]
+runtime_start = 0x03006740
+source_start  = 0x0800023C
+size          = 0xE0
+name          = "iwram_arm_6740"   # control 0x04000038
+
+[[extra_func]]
+addr = 0x03006740
+mode = "arm"
+
+# m4a SoundMainRAM, copied to IWRAM by the sound init (CpuSet at 0x08134692,
+# literals at 0x081346D8: source 0x08133A59, destination 0x03006D18, control
+# 0x04000100 = 0x100 words). SoundMain calls it through the literal 0x03006D19
+# at 0x08133A48. Thumb entry, ARM body from 0x03006D24 (add r1,pc,#4 at
+# 0x03006D1E; bx r1), back to Thumb at 0x03006DA6 (add r0,pc,#0x2F at
+# 0x03006D70; bx r0). It was the code bridged at
+# 0x03006D18-0x03006E96 (not link code, as first assumed).
+[[code_copy]]
+runtime_start = 0x03006D18
+source_start  = 0x08133A58
+size          = 0x400
+name          = "m4a_sound_main_ram"
+
+[[extra_func]]
+addr = 0x03006D18
+mode = "thumb"
+name = "SoundMainRAM"
+
+[[extra_func]]
+addr = 0x03006D24
+mode = "arm"
+note = "SoundMainRAM ARM body (bx r1 at 0x03006D20)"
+
+[[extra_func]]
+addr = 0x03006DA6
+mode = "thumb"
+note = "SoundMainRAM Thumb tail (bx r0 at 0x03006D74)"
+
+# EWRAM code copied at boot by 0x0800C4xx (literal pool 0x0800C4D0). The
+# multiplayer session has no interpreter fallback, so linked play stopped at
+# 0x02030950 until these were declared.
+# ARM: CpuSet 0x08000318 -> 0x02030950, control 0x04000010 (0x10 words).
+# Its address is also stored from 0x0800C74C; it reads the cable's data
+# registers (link IRQ path).
+[[code_copy]]
+runtime_start = 0x02030950
+source_start  = 0x08000318
+size          = 0x40
+name          = "ewram_arm_link_irq"
+
+[[extra_func]]
+addr = 0x02030950
+mode = "arm"
+
+# Thumb: CpuSet 0x0800C7E9 -> 0x02030590, control 0x04000080 (0x80 words).
+# 0x02030591 is the VBlank entry of the IRQ table at 0x0842735C.
+[[code_copy]]
+runtime_start = 0x02030590
+source_start  = 0x0800C7E8
+size          = 0x200
+name          = "ewram_thumb_vblank"
+
+[[extra_func]]
+addr = 0x02030590
+mode = "thumb"
+name = "vblank_handler_ewram"
+
 # Mode-6 ("CHOOSE A GAME") handler. Hooked by src/fs_boot.cpp to start Four
 # Swords instead. Hooking set_game_mode (0x0800B5EC) would miss the inline
 # mode-6 write AgbMain does after a soft reset (0x0803072C).

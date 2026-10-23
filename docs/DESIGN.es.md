@@ -245,7 +245,7 @@ enlazado en `CMakeLists.txt`:
 
 1. **M1 — Arranca:** el ejecutable nativo llega a la pantalla de selección del cartucho.
 2. **M2 — Arranque directo en Four Swords** y lobby estable con una consola.
-3. **M3 — Sesión local de 2 consolas** por el cable emulado (prueba el protocolo).
+3. **M3 — Sesión local de 2 consolas** por el cable emulado (prueba el protocolo). ✅ en un proceso (sección 9); falta el camino de netplay.
 4. **M4 — Un jugador estilo Anniversary** (seguir, cambiar, silbato).
 5. **M5 — En línea 2 jugadores**, luego **3–4**.
 6. **M6 — Investigación del contenido Anniversary** (viable / no viable).
@@ -432,3 +432,87 @@ Plan:
 * Una barra de menú dentro del juego que se abre con **F1**.
 * Se mantiene la lista de salas; el inicio de sesión con Discord sigue siendo opcional.
 * Solo arte propio (nada de recursos de Nintendo, ver sección 0).
+
+## 9. M3 — Dos GBAs en un cable ✅ (local, un proceso)
+
+**Resultado (23 oct 2026):** dos GBAs virtuales en un mismo cable
+`GbaLinkHub`, en un solo proceso y sin red, arrancan en frío, se enlazan en el
+lobby de Four Swords y entran juntas en la misma partida (modo 2). Los botones
+de cada GBA mueven a su propio Link y las dos pantallas muestran la misma
+escena. La ejecución es determinista (el mismo hash del estado final en cada
+ejecución) y totalmente estática: las sesiones enlazadas no tienen intérprete
+de respaldo, así que todo lo que alcanzan es nativo.
+
+**Herramienta.** `tools/link_probe.cpp` genera `FourSwordsLinkProbe` (no se
+compila por defecto: `ninja -C build FourSwordsLinkProbe`). Ejecuta de 2 a 4
+máquinas en un cable con el código generado y los hooks del juego, un `.sav`
+por máquina (solo lectura), botones por guion para cada máquina, capturas BMP,
+una traza de los bytes de modo y los registros SIO, y un estado final de toda
+la sesión desde el que continuar:
+
+```sh
+FourSwordsLinkProbe --rom roms/zelda_lttp_four_swords_usa.gba --bios gbarecomp/bios/gba_bios.bin \
+  --save0 a.sav --save1 b.sav --slot 2 --frames 2800 --inputs tests/m3_two_gba.inputs \
+  --trace 100 --shots 1700,2450,2600,2760 --out m3
+```
+
+Con `tests/m3_two_gba.inputs` (A y Start alternos desde el frame 1500, y
+después la GBA 1 anda a la derecha y la GBA 2 a la izquierda): intro de Four
+Swords en el frame 300, lobby enlazado hacia el 1.700 (cada GBA muestra las
+insignias P1 y P2 y "YOU" en la suya), modo 5 hacia el 2.000, las dos en la
+partida desde el ~2.100–2.300; los movimientos de los frames 2.500 y 2.650 se
+ven en las dos pantallas. 2.800 frames de dos GBAs tardan ~13 s.
+
+**Qué hizo falta:**
+
+1. *El código IWRAM de `0x03006D18–0x03006E96` no es código de link.* Es el
+   `SoundMainRAM` del driver de sonido m4a, copiado por la inicialización del
+   sonido (CpuSet en `0x08134692`, literales en `0x081346D8`: origen
+   `0x08133A58`, `0x400` bytes). Declarado como `[[code_copy]]` con su
+   entrada Thumb, su cuerpo ARM (`0x03006D24`) y su cola Thumb
+   (`0x03006DA6`); un jugador queda `FULLY_STATIC` (sin fallos de despacho ni
+   instrucciones interpretadas).
+2. *Otro código en RAM, necesario una vez enlazadas.* EWRAM:
+   `0x08000318 → 0x02030950` (`0x40`, ARM, el código de IRQ del cable) y
+   `0x0800C7E8 → 0x02030590` (`0x200`, Thumb, el manejador de VBlank),
+   copiados desde el pool de `0x0800C4D0`. IWRAM: `0x08008FA4 → 0x03000530`
+   (`0x300`), `0x080007C4 → 0x03000E40` (`0x100`) y
+   `0x0800023C → 0x03006740` (`0xE0`), todos ARM, desde el pool de AgbMain en
+   `0x0800B158`. Cada uno comprobado byte a byte contra la RAM.
+3. *Funciones alcanzadas solo por punteros en datos de la ROM* (descriptores
+   de objetos y estados, como `0x08427C28 → 0x0803DBD5`).
+   `tools/scan_code_pointers.ps1` declara cada palabra alineada de la zona de
+   datos (desde `0x08138000`) con el bit Thumb que apunta dentro del código a
+   un `PUSH {…, LR}` aún no compilado: 1.354 entradas en
+   `symbols/AZLE_data_pointers.toml`, que cargan `tools/regen.*`. Otras tres
+   tablas de salto automáticas sobredimensionadas a las que llegan se
+   recortaron con `tools/audit_jump_tables.py` (ahora en
+   `symbols/AZLE_symbols.toml`). El código pasó de ~33.900 a ~47.150
+   funciones.
+4. *La temporización del saludo por cable.* Las dos GBAs se quedaban en
+   "Linking with other systems…" (paso 4 del lobby). Con la traza del cable:
+   cuando el lobby pasa de transferencias sondeadas a transferencias por
+   interrupción, el padre inicia una transferencia y ~5.450 ciclos después su
+   inicialización del enlace (`0x0800C41C`) reinicia el SIO, y `0x0800C576`
+   solo activa la IRQ del Timer3 que lanza las siguientes transferencias si
+   SIOCNT ya no está ocupado. El tiempo del hub para dos GBAs a 115.200 bps
+   es de 5.755 ciclos (tabla de mGBA: 36 bits más un timeout de ~512 ciclos),
+   así que la transferencia seguía ocupada, el temporizador nunca se activaba
+   y no se volvía a enviar nada. Medido: hasta 5.450 ciclos funciona; desde
+   5.500 se atasca. El juego fija ahora 5.243 ciclos (solo los 36 bits) con
+   `gba::GbaLinkHub::set_multiplayer_transfer_cycles()`, un parche local de
+   GBARecomp (`patches/gbarecomp/0002-link-hub-transfer-time-override.patch`,
+   redactado como el PR para upstream). Los emuladores comparten el problema
+   (un fork de mGBA para libretro tiene una opción "Four Swords link
+   assist").
+
+**Pendiente:**
+
+* La causa de fondo de la diferencia de tiempos: puede que el hardware real
+  sea más rápido (GBATEK no da la duración del timeout) o que la CPU
+  recompilada cuente pocos ciclos en esa ruta. Mientras no se sepa, el ajuste
+  es un apaño para este juego.
+* La misma prueba por el camino real de netplay (dos procesos por UDP en
+  loopback y después las salas del launcher), 3–4 GBAs (sus tiempos siguen
+  con los valores de referencia) y salir de una partida enlazada (sección
+  8.1).

@@ -1,0 +1,81 @@
+From: Jesús <jesus33050@gmail.com>
+Subject: [PATCH] gba: let a game set the multiplayer cable transfer time
+
+The Legend of Zelda: Four Swords never leaves its "Linking with other
+systems" screen on a two-GBA cable. When the lobby switches from polled to
+interrupt-driven transfers, the parent's link init runs about 5,450 CPU
+cycles after the last polled transfer started, and only enables the timer
+IRQ that drives later transfers if SIOCNT is no longer busy. With the
+reference 5,755-cycle transfer (36 bits plus mGBA's ~512-cycle timeout) the
+transfer is still busy, so neither GBA ever transfers again. 5,450 cycles
+or less lets it through; 5,500 does not.
+
+Whether real hardware is faster (GBATEK does not give the timeout length)
+or the recompiled CPU spends too few cycles on that path is still open, so
+this does not change the defaults. It adds
+GbaLinkHub::set_multiplayer_transfer_cycles(baud, participants, cycles):
+a per-process override a game sets before any session starts. Every netplay
+peer runs the same build, so the value stays deterministic. 0 restores the
+default. multiplayer_transfer_cycles() reads the effective value.
+
+Used by FourSwordsRecomp with 5,243 cycles (the 36 bits alone at
+115,200 bps) for two GBAs.
+
+---
+diff --git a/src/gba/gba_link_hub.cpp b/src/gba/gba_link_hub.cpp
+index c5687d2..b38ce29 100644
+--- a/src/gba/gba_link_hub.cpp
++++ b/src/gba/gba_link_hub.cpp
+@@ -15,6 +15,22 @@ constexpr std::uint32_t kTransferCycles[4][3] = {
+     {63427, 94884, 125829}, {16241, 24104, 31457},
+     {10998, 16241, 20972}, {5755, 8376, 10486}
+ };
++// Per-process game overrides (0 = use kTransferCycles).
++std::uint32_t g_transfer_override[4][3] = {};
++}
++
++void GbaLinkHub::set_multiplayer_transfer_cycles(unsigned baud, std::size_t participants,
++                                                 std::uint32_t cycles) {
++    if (baud > 3 || participants < 2 || participants > kCablePorts)
++        throw std::invalid_argument("multiplayer transfer timing: baud 0-3, 2-4 participants");
++    g_transfer_override[baud][participants - 2] = cycles;
++}
++
++std::uint32_t GbaLinkHub::multiplayer_transfer_cycles(unsigned baud, std::size_t participants) {
++    if (baud > 3 || participants < 2 || participants > kCablePorts)
++        throw std::invalid_argument("multiplayer transfer timing: baud 0-3, 2-4 participants");
++    const auto custom = g_transfer_override[baud][participants - 2];
++    return custom ? custom : kTransferCycles[baud][participants - 2];
+ }
+ 
+ GbaLinkHub::GbaLinkHub(std::size_t port_count) : count_(port_count) {
+@@ -151,7 +167,7 @@ void GbaLinkHub::start_normal(std::size_t port) {
+ }
+ void GbaLinkHub::start() {
+     if (!ready()) return;
+-    const auto duration = kTransferCycles[ports_[0].control & 3][count_ - 2];
++    const auto duration = multiplayer_transfer_cycles(ports_[0].control & 3, count_);
+     if (ports_[0].cycle > std::numeric_limits<std::uint64_t>::max() - duration)
+         throw std::overflow_error("GBA cable cycle overflow");
+     transfer_.fill(0xffff);
+diff --git a/src/gba/gba_link_hub.h b/src/gba/gba_link_hub.h
+index 5b9c02a..938b22e 100644
+--- a/src/gba/gba_link_hub.h
++++ b/src/gba/gba_link_hub.h
+@@ -22,6 +22,16 @@ public:
+     GbaLinkHub(const GbaLinkHub&) = delete;
+     GbaLinkHub& operator=(const GbaLinkHub&) = delete;
+ 
++    // Multiplayer transfer duration in CPU cycles for a baud setting (SIOCNT
++    // bits 0-1) and a cable of 2-4 participants. The defaults are the mGBA
++    // reference timings; a game may replace one before any session starts,
++    // when its own handshake proves them too long for this runtime (every
++    // netplay peer runs the same build, so the value stays deterministic).
++    // 0 restores the default. Not part of snapshots.
++    static void set_multiplayer_transfer_cycles(unsigned baud, std::size_t participants,
++                                                std::uint32_t cycles);
++    static std::uint32_t multiplayer_transfer_cycles(unsigned baud, std::size_t participants);
++
+     GbaSerialDevice& endpoint(std::size_t port);
+     std::size_t port_count() const { return count_; }
+     std::uint64_t cycle(std::size_t port) const;

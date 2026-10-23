@@ -47,6 +47,12 @@ if(NOT _gbarecomp_runtime_h MATCHES "request_quit")
         "gbarecomp lacks a local patch. Run: git -C gbarecomp apply "
         "../patches/gbarecomp/0001-runtime-request-quit.patch (see patches/README.md)")
 endif()
+file(READ "${GBARECOMP_ROOT}/src/gba/gba_link_hub.h" _gbarecomp_link_hub_h)
+if(NOT _gbarecomp_link_hub_h MATCHES "set_multiplayer_transfer_cycles")
+    message(FATAL_ERROR
+        "gbarecomp lacks a local patch. Run: git -C gbarecomp apply "
+        "../patches/gbarecomp/0002-link-hub-transfer-time-override.patch (see patches/README.md)")
+endif()
 add_subdirectory("${GBARECOMP_ROOT}" gbarecomp_build EXCLUDE_FROM_ALL)
 
 # ── Generated cartridge code (local only, derived from the player's ROM) ──
@@ -61,11 +67,24 @@ if(NOT GAME_GENERATED_SOURCES)
         "and run tools/regen.ps1 (Windows) or tools/regen.sh first.")
 endif()
 
-add_executable(FourSwordsRecomp
-    src/main.cpp
+# Generated code + game hooks, shared by the game and the M3 link probe.
+add_library(fsr_game OBJECT
     src/fs_boot.cpp
     src/fs_save.cpp
     ${GAME_GENERATED_SOURCES})
+target_include_directories(fsr_game PUBLIC
+    src
+    "${GBARECOMP_ROOT}/src/armv4t"
+    "${GBARECOMP_ROOT}/src/gba"
+    "${GBARECOMP_ROOT}/src/runtime"
+    "${GBARECOMP_ROOT}/src/debug")
+# Compile-time usage requirements only; executables link the libraries.
+target_link_libraries(fsr_game PRIVATE
+    gbarecomp_runtime gbarecomp_debug gbarecomp_gba gbarecomp_armv4t)
+
+add_executable(FourSwordsRecomp
+    src/main.cpp
+    $<TARGET_OBJECTS:fsr_game>)
 
 # Keep the big generated shards cheap to compile.
 set(GAME_RECOMPILED_SOURCES ${GAME_GENERATED_SOURCES})
@@ -141,8 +160,39 @@ if(BUILD_TESTING)
     add_test(NAME fs_save COMMAND fs_save_test)
 endif()
 
+# M3 link probe: 2-4 virtual GBAs on one GbaLinkHub cable in one process, no
+# network or window (tools/link_probe.cpp). Not built by default:
+#   ninja -C build FourSwordsLinkProbe
+add_executable(FourSwordsLinkProbe EXCLUDE_FROM_ALL
+    tools/link_probe.cpp
+    $<TARGET_OBJECTS:fsr_game>)
+target_include_directories(FourSwordsLinkProbe PRIVATE
+    src
+    "${GBARECOMP_ROOT}/src/armv4t"
+    "${GBARECOMP_ROOT}/src/gba"
+    "${GBARECOMP_ROOT}/src/runtime"
+    "${GBARECOMP_ROOT}/src/debug")
 if(MSVC)
-    target_link_options(FourSwordsRecomp PRIVATE /STACK:16777216)
-elseif(MINGW OR WIN32)
-    target_link_options(FourSwordsRecomp PRIVATE -Wl,--stack,16777216)
+    target_link_libraries(FourSwordsLinkProbe PRIVATE
+        gbarecomp_runtime gbarecomp_debug gbarecomp_gba gbarecomp_armv4t)
+else()
+    target_link_libraries(FourSwordsLinkProbe PRIVATE
+        "-Wl,--start-group"
+        gbarecomp_runtime gbarecomp_debug gbarecomp_gba gbarecomp_armv4t
+        "-Wl,--end-group")
 endif()
+# The runtime library references the in-game UI and netplay when built in.
+if(GBARECOMP_NETPLAY)
+    target_link_libraries(FourSwordsLinkProbe PRIVATE gbarecomp_netplay)
+endif()
+if(GBAGAME_RECOMP_UI)
+    target_link_libraries(FourSwordsLinkProbe PRIVATE game_launcher_ui)
+endif()
+
+foreach(_exe FourSwordsRecomp FourSwordsLinkProbe)
+    if(MSVC)
+        target_link_options(${_exe} PRIVATE /STACK:16777216)
+    elseif(MINGW OR WIN32)
+        target_link_options(${_exe} PRIVATE -Wl,--stack,16777216)
+    endif()
+endforeach()

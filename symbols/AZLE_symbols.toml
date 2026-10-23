@@ -394,3 +394,27 @@ count        = 2
 format       = "abs32"
 entries_mode = "auto"
 note         = "dispatch at 0x08042D12; auto walk read 3, entry 2 = 0x08428774 is not Thumb code"
+
+[[jump_table]]
+addr         = 0x0813E400
+stride       = 4
+count        = 37
+format       = "abs32"
+entries_mode = "auto"
+note         = "dispatch at 0x08000504; auto walk read 38, entry 37 = 0x0813E4CC is not Thumb code"
+
+[[jump_table]]
+addr         = 0x0813EE38
+stride       = 4
+count        = 7
+format       = "abs32"
+entries_mode = "auto"
+note         = "dispatch at 0x08044C58; auto walk read 10, entry 7 = 0x0813EE38 is not Thumb code"
+
+[[jump_table]]
+addr         = 0x0813F578
+stride       = 4
+count        = 2
+format       = "abs32"
+entries_mode = "auto"
+note         = "dispatch at 0x08048FA4; auto walk read 3, entry 2 = 0x0813F578 is not Thumb code"

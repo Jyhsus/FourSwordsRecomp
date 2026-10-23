@@ -3,6 +3,7 @@
 #include <atomic>
 #include <cstdlib>
 
+#include "gba_link_hub.h"
 #include "mod_function_hooks.h"
 #include "mod_runtime.h"
 #include "runtime.h"
@@ -57,6 +58,8 @@ constexpr std::uint8_t kModeChooseGame = 6;
 constexpr const char* kExitHookId = "fsr.exit";
 constexpr std::uint32_t kFourSwordsExit = 0x08030018u;
 constexpr std::uint32_t kFadeBusy = 0x03000520u;
+
+constexpr std::uint32_t kTwoPlayerTransferCycles = 5243;  // 36 bits at 115,200 bps
 
 std::atomic<int> g_boot_slot{-1};
 std::atomic<bool> g_quit_to_menu{false};
@@ -114,6 +117,14 @@ const bool registered = [] {
     gba_mod_register_function_entry_plugin(kExitHookId, kFourSwordsExit, 1, &on_four_swords_exit);
     gba_mod_register_reset_callback(&enable_hooks);
     enable_hooks();
+    // M3 cable handshake (docs/DESIGN.md section 9): when the lobby switches
+    // to interrupt-driven transfers, the parent's link init (0x0800C41C) runs
+    // ~5,450 cycles after the last polled transfer started, and 0x0800C576
+    // enables the Timer3 IRQ that drives later transfers only if SIOCNT is no
+    // longer busy. With the 5,755-cycle reference time (36 bits plus a
+    // timeout) it is still busy and both GBAs wait forever on "Linking with
+    // other systems". 5,243 cycles is the 36 bits alone at 115,200 bps.
+    gba::GbaLinkHub::set_multiplayer_transfer_cycles(3, 2, kTwoPlayerTransferCycles);
     return true;
 }();
 

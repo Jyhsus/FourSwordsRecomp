@@ -20,8 +20,10 @@ if ($actual -ne $expected) {
 }
 
 $args = @('--rom', $romPath, '--config', (Join-Path $root 'game.toml'))
-$overlay = Join-Path $root 'symbols\AZLE_symbols.toml'
-if (Test-Path -LiteralPath $overlay) { $args += @('--config', $overlay) }
+foreach ($name in 'AZLE_symbols.toml', 'AZLE_data_pointers.toml') {
+    $overlay = Join-Path $root "symbols\$name"
+    if (Test-Path -LiteralPath $overlay) { $args += @('--config', $overlay) }
+}
 $funcSyms = Join-Path $root 'symbols\imported_symbols.tsv'
 if (Test-Path -LiteralPath $funcSyms) { $args += @('--symbols', $funcSyms) }
 $args += @('--out', (Join-Path $root 'generated'), '--max-functions', $MaxFunctions)
