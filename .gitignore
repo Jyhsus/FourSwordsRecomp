@@ -49,6 +49,7 @@ diagnostics/
 # ── Local overrides / IDE / OS ───────────────────────────────────────
 *.local.toml
 *.local.ini
+keybinds.ini
 .vscode/
 .idea/
 .vs/
