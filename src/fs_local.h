@@ -2,9 +2,12 @@
 // fs_local.h — local multiplayer (docs/DESIGN.md section 10).
 //
 // 2-4 virtual GBAs on one GbaLinkHub cable in this process, like
-// FourSwordsLinkProbe, in one split-screen window: two side by side, three or
-// four in a 2x2 grid. Player 1 plays with the keyboard and the first
-// controller, player N with controller N; the audio is player 1's.
+// FourSwordsLinkProbe, in one split-screen window laid out by fs_layout.h.
+//
+// One number means one player everywhere: player N is machine N-1, cable port
+// N-1 (so the game calls that GBA "P<N>": port 0 is the cable's parent, P1),
+// view N in the window, entry N-1 of the plan's files and controllers, and
+// player 1's GBA is the one heard. Nothing is reordered after the plan.
 //
 // Saves: every GBA starts from a copy of the shared .sav with its system block
 // pointing at that player's file, and only that file's blocks are merged back
@@ -15,6 +18,8 @@
 #include <array>
 #include <filesystem>
 #include <memory>
+#include <string>
+#include <vector>
 
 #include "fs_save.h"
 
@@ -24,14 +29,35 @@ namespace fsr {
 
 constexpr int kGuestFile = -1;
 constexpr int kLocalMaxPlayers = 4;
+constexpr int kNoPad = -1;
 
 struct LocalPlan {
     int players = 2;                                   // 2-4
     std::array<int, kLocalMaxPlayers> file{0, 1, kGuestFile, kGuestFile};  // 0-2 or kGuestFile
+    // Each player's controller: a position in local_pads(), or kNoPad.
+    std::array<int, kLocalMaxPlayers> pad{0, 1, 2, 3};
+    int keyboard = 0;                                  // the player who also has the keyboard, or -1
+    bool integer_scale = false;                        // whole-number scale, larger bars
     std::filesystem::path save_path;                   // the shared .sav
 };
 
-// 2-4 players, each on a file in use or a guest, no file twice.
+// A connected game controller.
+struct LocalPad {
+    int instance = -1;   // SDL joystick instance ID (valid until SDL's controller subsystem quits)
+    int light = -1;      // SDL player index: the number its player light shows, 0-based; -1 unknown
+    std::string name;
+    std::string guid;
+};
+
+// The connected controllers, in the order players count them: by player light
+// (the XInput slot on Xbox pads, the LED on others) and, without one, in the
+// order they were connected. SDL's own device order is not used: it depends
+// on the driver and can run backwards. SDL's game controller subsystem must
+// be initialised.
+std::vector<LocalPad> local_pads();
+
+// 2-4 players, each on a file in use or a guest, no file and no controller
+// twice.
 bool valid_local_plan(const LocalPlan& plan, const std::array<save::Slot, save::kSlotCount>& slots);
 
 // A launch for RunOptions::netplay with no network: run_game() resolves and

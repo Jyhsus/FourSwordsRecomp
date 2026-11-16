@@ -20,7 +20,7 @@ namespace fsr {
 struct SlotScreen {
     std::filesystem::path save_path;  // the .sav run_game() will use
     std::filesystem::path rom_path;   // the player's ROM, for a first save
-    LocalPlan local;                  // out: set when kSlotScreenLocal is returned
+    LocalPlan local;                  // in: last choices; out: set when kSlotScreenLocal is returned
 };
 
 constexpr int kSlotScreenBack = -1;    // back to the launcher

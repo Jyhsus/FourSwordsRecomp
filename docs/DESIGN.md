@@ -498,25 +498,147 @@ own), mode 5 at ~2,000, both in the game from ~2,100–2,300; the moves at
 button with two choices:
 
 * **Local:** 2, 3 or 4 players on this computer. Each player picks a file in
-  use or **Guest**. The game runs that many virtual GBAs in this process on
-  one `GbaLinkHub` cable, as `FourSwordsLinkProbe` does (section 9), and shows
-  them in one window: two side by side (480×160), three or four in a 2×2 grid
-  (480×320; with three, the fourth cell stays black). Player 1 plays with the
-  keyboard and the first controller, player N with controller N (SDL order,
-  same button mapping as single player). The audio is player 1's; the other
-  GBAs' sound is dropped. Quitting Four Swords comes back to the launcher;
-  closing the window quits, as in single player.
+  use or **Guest**, and a controller by name; one player can also have the
+  keyboard. The game runs that many virtual GBAs in this process on one
+  `GbaLinkHub` cable, as `FourSwordsLinkProbe` does (section 9), and shows
+  them in one resizable window (layout below). The audio is player 1's; the
+  other GBAs' sound is dropped. Quitting Four Swords comes back to the
+  launcher; closing the window quits, as in single player.
 * **Online:** goes back to the launcher, whose Netplay tab has the rooms
   (section 4).
 
 The same thing without the launcher, for testing:
 `FourSwordsRecomp --local 2,guest [--save-path x.sav] game.toml` (2–4
-comma-separated players, each `1`–`3` or `guest`). `src/fs_local.cpp` is the
-runner. It is handed to `run_game()` as a `RunOptions::netplay` launch with no
-network, so the runtime still checks the ROM, the BIOS and the window
+comma-separated players, each `1`–`3` or `guest`), plus
+`--local-scale fit|integer` and `--local-keyboard 1-4|none`. `src/fs_local.cpp`
+is the runner. It is handed to `run_game()` as a `RunOptions::netplay` launch
+with no network, so the runtime still checks the ROM, the BIOS and the window
 settings first. Debug aids: `FSR_LOCAL_INPUTS` (a probe input script, added to
-the live controls) and, with `--frames N`, `FSR_LOCAL_DUMP` (a BMP of the last
-split-screen frame).
+the live controls), `GBARECOMP_FORCE_DRAWABLE=WxH` (lay the window out as if it
+had that size) and, with `--frames N`, `FSR_LOCAL_DUMP` (a BMP of the last
+window frame).
+
+**Who is player N (16 Nov 2026).** One number means one player everywhere:
+player N is machine N−1, cable port N−1, view N in the window and entry N−1
+of the plan's files and controllers; player 1's GBA is the one heard. The game
+takes each GBA's player number from its cable port (SIOCNT bits 4–5; port 0 is
+the parent). Checked with `FourSwordsLinkProbe` on four GBAs: the lobby puts
+"YOU" over P1 on machine 0, P2 on machine 1 and P3 on machine 2, and in the
+game the buttons of machines 0–3 move the green, red, blue and purple Link.
+
+Testers reported the order reversed (two players: P1↔P2; three: P1↔P3; four:
+P1↔P4 and P2↔P3). The session is not reversed (above). The first runner gave
+out controllers in SDL's device order: `HostWindow` took device 0 for player 1
+and device N−1 went to player N. A device order that is the reverse of what
+the players expect gives exactly those three reports, and SDL's order depends
+on the driver, not on the pads' player lights. That is the likely cause; it is
+**not confirmed** on the testers' hardware (the development machine had no
+controller connected). The fix does not depend on it:
+
+* `fsr::local_pads()` lists controllers by player light (SDL's player index:
+  the XInput slot on Xbox pads), then by connection order. SDL's device order
+  is not used.
+* The Local page shows each player's controller by name. Holding a button
+  marks that controller's row "pressed". Picking a controller another player
+  has swaps the two.
+* `HostWindow`'s own controller is turned off (`set_gamepad_enabled(false)`,
+  local patch 0003), so no device can drive two players.
+* A player keeps their device for the session. If it is unplugged the game
+  pauses and the title bar names the player; the same model of controller
+  coming back (or else any new one) takes the free place. The pause key
+  overrides the wait.
+* The keyboard belongs to one player (player 1 by default, or nobody), on top
+  of that player's controller. The left stick also works as the Control Pad.
+* Files and guests are indexed by player; choosing controllers never touches
+  them.
+
+**Window layout and scaling (16 Nov 2026).** `src/fs_layout.h`, checked by
+`tests/fs_layout_test.cpp`. All views have the same size and the source's
+aspect (3:2), and sit together in the middle of the window:
+
+| Views | Places |
+|---|---|
+| 1 | centred (layout only; there is no single-player mode here) |
+| 2 | P1 left, P2 right, centred vertically |
+| 3 | P1 top left, P2 top right, P3 bottom centre |
+| 4 | P1 and P2 on top, P3 and P4 below |
+
+The canvas is the window's own pixels and each GBA frame is scaled straight
+into its place, so nothing rescales the picture afterwards. Nothing is
+stretched or cropped; the rest of the window is black. Two scales:
+
+* **Fit** (default): the largest size that fits. Each source pixel becomes a
+  block of whole pixels (the scale rounded down) and only the leftover
+  fraction is blended at block edges; inside a block no pixels are mixed. A
+  whole-number scale is exact pixel repetition, and a fit within two pixels
+  of one snaps to it.
+* **Whole-number** (`--local-scale integer`, or the checkbox): every pixel the
+  same size, with larger bars.
+
+On a 1920×1080 screen: two views are 960×640 each, exactly 4×, in both modes
+(bars above and below are unavoidable with two 3:2 views side by side); three
+or four views are 809×539 (3.37×) with Fit, or 720×480 (3×) with 240-pixel
+side bars in whole-number mode. A 2-pixel gap separates the views unless it
+would cost a whole-number scale.
+
+Fullscreen is always the desktop's own mode. Exclusive fullscreen (launcher
+`fullscreen = 2`) switched a 1920×1080 monitor to 1024×768 with four views
+(drawn at 2.13×) and to 1440×900 with two: the mode nearest the window, which
+the monitor then rescales and, at 4:3, distorts (measured with the first
+runner, 16 Nov 2026).
+
+**Diagnosis of the reported exit with four players (16 Nov 2026).** Not
+reproduced, so **not fixed**:
+
+| Run | Result |
+|---|---|
+| `FourSwordsLinkProbe`, 2 / 3 / 4 GBAs, 3,100 frames, cold boot to the tutorial, each GBA moving its own Link | no error; hashes `39cc9470`, `e31f15aa`, `010a73b5` |
+| First runner, windowed, `--local 1,guest,guest,guest`, 3,100 frames, three times | exit code 0 |
+| First runner, exclusive fullscreen (the testers' launcher setting), 4 and 2 players, 600 frames | exit code 0 (mode switch above) |
+| New runner, 2 / 3 / 4 players, 3,100 frames | ended normally |
+
+What was found: any error inside the local runner (a missing native entry,
+since linked sessions have no interpreter fallback; a cable error; the window
+failing to open) ended the program with one line on stderr, which nobody sees
+when the game is started from the launcher. Such an error is the most likely
+kind of "unexpected exit" in a part of the game no test has reached, but
+which one happened is unknown. Now the runner writes, next to the executable
+and overwritten by each session:
+
+* `fsr_local_last.log`: version, players, files, controllers, window size,
+  controller and save events, and on an error the frame, each GBA's mode
+  bytes and the message (also shown in a dialog);
+* `fsr_local_last.inputs`: every player's buttons, in `FSR_LOCAL_INPUTS` format;
+* `fsr_local_last.sav`: the shared save as the session found it.
+
+To replay a session: the same `--local` list, `--save-path` on a copy of that
+`.sav`, and `FSR_LOCAL_INPUTS` on that file.
+
+**Graphics reports (16 Nov 2026).** One tester saw washed-out colours and
+flickering sprites compared with the original. Neither has been reproduced as
+reported; what is known:
+
+* *Colours, fact:* `game.toml` set `[video] screen = "frontlit"`, the
+  engine's model of the GBA SP's front-lit panel, which lowers saturation and
+  lifts black on purpose. It applies when nothing overrides it; the launcher
+  passes its own Screen setting (`raw` in the test machine's `config.ini`).
+  `raw` is the PPU's colours with the exact 5-to-8-bit expansion. The same
+  frame through each model is visibly different (frontlit is the palest).
+  The default is now `raw`, so a start without the launcher shows the same
+  colours as one with it; this is not shown to be what the tester saw.
+* *Colours and shimmer, fact:* exclusive fullscreen ran the picture through
+  the monitor's scaler at a non-native mode and drew it at 2.13× with nearest
+  sampling, which makes columns of pixels uneven, so anything that moves
+  shimmers. Fixed by the layout above.
+* *Flicker, fact:* the engine does not wait for the monitor's refresh
+  (`GBARECOMP_VSYNC=1` opts in); the test monitor runs at 144 Hz and the game
+  at 59.73 Hz. Consecutive raw PPU frames of the tutorial room show only the
+  sprites' own animation, no every-other-frame flicker.
+* *Not done yet:* a side-by-side with a reference (the same USA ROM in
+  another emulator with colour correction and filters off, or hardware) on
+  the same scene; finding out which setting the tester had, which sprites
+  flickered and where. Until then the cause of that report is open. No
+  saturation boost, interpolation or frame blending was added.
 
 **Saves (decided 23 Oct 2026): merge by file.** Otherwise every GBA would own
 a full copy of the cartridge's EEPROM, and whichever wrote the `.sav` last
@@ -566,8 +688,63 @@ this points at our timing on the parent's path (the recompiled CPU reaching
   merge. It still needs a real check: finish a stage in a local game and
   confirm that the file's medals and progress reach the `.sav`.
 * The windowed flow (launcher → files → Multiplayer → Local) is built and its
-  parts were run, but nobody has clicked through it yet.
+  parts were run, but nobody has clicked through it yet, and the new
+  controller choices have not been tried with real controllers (order,
+  "pressed" marker, unplugging and plugging back).
+* A real game with four people, and anything past the tutorial with two or
+  three.
 * Online play (`multiplayer_runner.cpp` upstream) never writes a player's
   `.sav`, only paired checkpoints, so progress made online is lost. The fix is
   the same as here, in the engine (an upstream PR).
-* Controllers are assigned in SDL order; there is no way to reorder them yet.
+* The Local page's choices (controllers, keyboard, scale) last until the
+  program closes; they are not written to a settings file.
+* Controller buttons are fixed (SDL's standard layout); only the keyboard
+  follows `keybinds.ini`.
+
+## 11. Real widescreen 🔬 (findings, 16 Nov 2026)
+
+Goal: a 16:9 view that shows more of the world, with the 3:2 picture kept as
+an option. Not a stretched, cropped or letterboxed picture. **Not available
+yet**; this section is what an adaptation has to solve.
+
+**What the engine gives.** The PPU can render extra columns
+(`set_view_margins`), games supply what goes in them through providers
+(`g_ws_tilemap_provider`, BG and OBJ placement hooks, `g_ws_pillarbox`), and
+`GbaNetplayPresentation` is a host-only mirror PPU per machine: the real PPU
+stays at 240×160 and the mirror never enters a snapshot or a state hash.
+`game.toml`'s `widescreen = 0` turns none of this on by itself.
+
+**Prototype.** `FourSwordsLinkProbe --wide 284` gives every machine a mirror
+284 columns wide with no provider and saves both pictures. Results on the
+four-GBA tutorial run:
+
+* The session hash is the same with and without the mirrors (`010a73b5`): a
+  wider presentation does not reach game logic, collisions or the link.
+* In the game BG0–BG3 are all 256×256 text maps (`BGxCNT` = `1F0C`, `1D05`,
+  `1C02`, `1E07`). The hardware holds 16 pixels beyond the 240 on screen; 284
+  needs 44. The margins show the far edge of the map wrapped around, not the
+  room.
+* The hearts, rupee counter and item icon keep their 240-wide coordinates, so
+  they sit inside the picture instead of at its edges.
+* The camera stops at the room's edge as computed for 240 pixels.
+
+**What a real adaptation needs,** in order:
+
+1. The room's tile map in RAM (the hardware maps are only a scrolling window
+   onto it) and a tilemap provider that reads it for the margin columns.
+   *The Minish Cap* names (`zeldaret/tmc`) are the reference; addresses and
+   names only.
+2. The HUD moved to the wide picture's edges through the OBJ/BG placement
+   hooks, on the mirror only.
+3. A rule for rooms narrower than the view and for the camera's edge stops:
+   show what exists, bars for the rest.
+4. Sprites near the edges. The game decides which objects exist from its own
+   240-wide view; objects may pop in inside the margins. Showing them earlier
+   means changing game logic, which must not happen: every GBA of a session
+   has to compute the same thing.
+5. Title, lobby, menus, stage intro and cut-scenes stay 3:2 with bars
+   (`g_ws_pillarbox`), and are listed here when known.
+
+The window layout is ready for it: `local_layout()` takes the view size, and
+284×160 views are covered by its test. The Local page will offer 16:9 only
+when steps 1–3 work on at least one stage.

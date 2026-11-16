@@ -53,6 +53,12 @@ if(NOT _gbarecomp_link_hub_h MATCHES "set_multiplayer_transfer_cycles")
         "gbarecomp lacks a local patch. Run: git -C gbarecomp apply "
         "../patches/gbarecomp/0002-link-hub-transfer-time-override.patch (see patches/README.md)")
 endif()
+file(READ "${GBARECOMP_ROOT}/src/runtime/host_window.h" _gbarecomp_host_window_h)
+if(NOT _gbarecomp_host_window_h MATCHES "set_gamepad_enabled")
+    message(FATAL_ERROR
+        "gbarecomp lacks a local patch. Run: git -C gbarecomp apply "
+        "../patches/gbarecomp/0003-host-window-gamepad-switch.patch (see patches/README.md)")
+endif()
 add_subdirectory("${GBARECOMP_ROOT}" gbarecomp_build EXCLUDE_FROM_ALL)
 
 # ── Generated cartridge code (local only, derived from the player's ROM) ──
@@ -160,6 +166,10 @@ if(BUILD_TESTING)
     add_executable(fs_save_test tests/fs_save_test.cpp src/fs_save.cpp)
     target_include_directories(fs_save_test PRIVATE src)
     add_test(NAME fs_save COMMAND fs_save_test)
+    # Local multiplayer window layout and scaler: ctest --test-dir build -R fs_layout
+    add_executable(fs_layout_test tests/fs_layout_test.cpp)
+    target_include_directories(fs_layout_test PRIVATE src)
+    add_test(NAME fs_layout COMMAND fs_layout_test)
 endif()
 
 # M3 link probe: 2-4 virtual GBAs on one GbaLinkHub cable in one process, no

@@ -20,6 +20,7 @@
 #include <cstdlib>
 #include <fstream>
 #include <iomanip>
+#include <memory>
 #include <set>
 #include <sstream>
 #include <stdexcept>
@@ -29,6 +30,7 @@
 #include "fs_boot.h"
 #include "gba_bios.h"
 #include "multiplayer_session.h"
+#include "multiplayer_view.h"
 #include "sha1.h"
 
 namespace {
@@ -53,8 +55,8 @@ void write_file(const std::string& path, const std::uint8_t* data, std::size_t s
 }
 
 // 24-bit bottom-up BMP from the PPU's RGB888 framebuffer.
-void write_bmp(const std::string& path, const std::uint8_t* rgb) {
-    constexpr int w = 240, h = 160, row = w * 3;
+void write_bmp(const std::string& path, const std::uint8_t* rgb, int w = 240) {
+    const int h = 160, row = (w * 3 + 3) & ~3;
     std::vector<std::uint8_t> out(54 + row * h, 0);
     auto put32 = [&](std::size_t at, std::uint32_t v) {
         for (int i = 0; i < 4; ++i) out[at + i] = static_cast<std::uint8_t>(v >> (8 * i));
@@ -76,7 +78,7 @@ void write_bmp(const std::string& path, const std::uint8_t* rgb) {
 struct Args {
     std::string rom, bios, out, inputs, load;
     std::vector<std::string> saves;
-    unsigned frames = 0, trace = 0;
+    unsigned frames = 0, trace = 0, wide = 0;
     int slot = -1;
     std::set<unsigned> shots;
 };
@@ -95,6 +97,7 @@ Args parse(int argc, char** argv) {
         else if (k == "--load") a.load = v;
         else if (k == "--frames") a.frames = std::stoul(v);
         else if (k == "--trace") a.trace = std::stoul(v);
+        else if (k == "--wide") a.wide = std::stoul(v);
         else if (k == "--slot") a.slot = std::stoi(v) - 1;
         else if (k.rfind("--save", 0) == 0 && k.size() == 7 && k[6] >= '0' && k[6] <= '3')
             a.saves[k[6] - '0'] = v;
@@ -173,6 +176,19 @@ int main(int argc, char** argv) {
                 m.bus.save().clear_dirty();
             }
         }
+        // --wide W: a host-only presentation mirror per machine renders W
+        // columns (W > 240) with no game provider, to see what the hardware
+        // tilemaps and OAM hold beyond the native view (DESIGN section 11).
+        std::vector<std::unique_ptr<GbaNetplayPresentation>> wide;
+        if (a.wide > 240) {
+            GbaNetplayViewPolicy policy;
+            policy.supported = true;
+            for (unsigned id = 0; id < players; ++id) {
+                wide.push_back(std::make_unique<GbaNetplayPresentation>(policy));
+                wide.back()->request_width(a.wide);
+                session.machine(id).ppu.set_presentation_observer(wide.back().get());
+            }
+        }
         if (!a.load.empty() && !session.load_state(read_file(a.load), &error))
             throw std::runtime_error("cannot load " + a.load + ": " + error);
 
@@ -203,6 +219,18 @@ int main(int argc, char** argv) {
                 for (unsigned id = 0; id < players; ++id) {
                     write_bmp(a.out + "-f" + std::to_string(shown) + "-seat" + std::to_string(id) + ".bmp",
                               session.machine(id).ppu.latched_framebuffer());
+                    if (id < wide.size() && wide[id]->pixels()) {
+                        write_bmp(a.out + "-f" + std::to_string(shown) + "-seat" + std::to_string(id) + "-wide.bmp",
+                                  wide[id]->pixels(), static_cast<int>(wide[id]->width()));
+                        auto& m = session.machine(id);
+                        std::printf("regs frame=%u m%u dispcnt=%04x", shown, id,
+                                    m.bus.read8(0x04000000) | (m.bus.read8(0x04000001) << 8));
+                        for (unsigned bg = 0; bg < 4; ++bg) {
+                            std::printf(" bg%ucnt=%04x", bg, m.bus.read8(0x04000008 + bg * 2) |
+                                                             (m.bus.read8(0x04000009 + bg * 2) << 8));
+                        }
+                        std::printf("\n");
+                    }
                 }
             }
         }

@@ -1,7 +1,8 @@
 // main.cpp — FourSwordsRecomp entry point.
 //
 //   FourSwordsRecomp [--bios <path>] [--rom <path>] [--slot 1-3]
-//                    [--local 1,guest,...] [game.toml]
+//                    [--local 1,guest,...] [--local-scale fit|integer]
+//                    [--local-keyboard 1-4|none] [game.toml]
 //
 // The player supplies their own GBA BIOS and their own USA cartridge dump
 // ("A Link to the Past & Four Swords", game code AZLE). Both are hash-checked
@@ -115,6 +116,18 @@ bool take_local_argument(std::vector<std::string>& args, fsr::LocalPlan& plan) {
     return true;
 }
 
+// Removes "--flag value" from args and returns the value, or "" when absent.
+std::string take_value_argument(std::vector<std::string>& args, const char* flag) {
+    for (std::size_t i = 1; i + 1 < args.size(); ++i) {
+        if (args[i] != flag) continue;
+        const std::string value = args[i + 1];
+        args.erase(args.begin() + static_cast<std::ptrdiff_t>(i),
+                   args.begin() + static_cast<std::ptrdiff_t>(i) + 2);
+        return value;
+    }
+    return "";
+}
+
 // Same cases in which the launcher seam stays out of the way (headless and
 // scripted runs); the file screen is part of the launcher, so it does too.
 bool interactive(const std::vector<std::string>& args) {
@@ -145,7 +158,10 @@ int main(int argc, char** argv) {
                         "Needs your own GBA BIOS and your own USA AZLE cartridge dump.\n"
                         "--slot starts that cartridge file directly in Four Swords.\n"
                         "--local starts 2-4 linked GBAs in split screen, one file\n"
-                        "(1-3, each at most once) or guest per player.\n");
+                        "(1-3, each at most once) or guest per player. Player N uses\n"
+                        "controller N (by its player light); --local-keyboard gives the\n"
+                        "keyboard to a player too (default 1). --local-scale integer\n"
+                        "keeps whole-number pixels; fit (default) fills the window.\n");
             return 0;
         }
     }
@@ -180,6 +196,16 @@ int main(int argc, char** argv) {
         std::fprintf(stderr, "--local needs 2 to 4 players: 1, 2, 3 or guest, comma-separated\n");
         return 1;
     }
+    const std::string local_scale = take_value_argument(args, "--local-scale");
+    const std::string local_keyboard = take_value_argument(args, "--local-keyboard");
+    if ((!local_scale.empty() && local_scale != "fit" && local_scale != "integer") ||
+        (!local_keyboard.empty() && local_keyboard != "none" &&
+         (local_keyboard.size() != 1 || local_keyboard[0] < '1' || local_keyboard[0] > '4'))) {
+        std::fprintf(stderr, "--local-scale needs fit or integer; --local-keyboard a player or none\n");
+        return 1;
+    }
+    local.integer_scale = local_scale == "integer";
+    if (!local_keyboard.empty()) local.keyboard = local_keyboard == "none" ? -1 : local_keyboard[0] - '1';
     if (local.players) {
         local.save_path = save_path_argument(args);
         std::array<fsr::save::Slot, fsr::save::kSlotCount> slots{};
@@ -224,6 +250,8 @@ int main(int argc, char** argv) {
     // player quits Four Swords. run_game() may run more than once per process.
     const bool from_launcher = slot < 0 && interactive(args);
     bool reopen_launcher = false;
+    fsr::LocalPlan last_local = local;   // controller, keyboard and scale choices
+    last_local.players = 2;
     for (;;) {
         std::vector<std::string> run_args = args;
         if (reopen_launcher) run_args.push_back("--launcher");
@@ -232,6 +260,7 @@ int main(int argc, char** argv) {
             fsr::SlotScreen screen;
             screen.save_path = save_path_argument(run_args);
             screen.rom_path = flag_value(run_args, "--rom");
+            screen.local = last_local;
             const int picked = fsr::run_slot_screen(screen);
             if (picked == fsr::kSlotScreenQuit) return 0;
             reopen_launcher = true;
@@ -240,6 +269,7 @@ int main(int argc, char** argv) {
             if (picked == fsr::kSlotScreenLocal) {
                 // Section 10: run_game() checks the assets and window settings,
                 // then hands them to the local runner instead of single player.
+                last_local = screen.local;
                 gbarecomp::RunOptions local_opts = opts;
                 local_opts.netplay = fsr::make_local_launch(screen.local);
                 std::vector<char*> av;

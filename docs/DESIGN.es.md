@@ -524,27 +524,158 @@ ven en las dos pantallas. 2.800 frames de dos GBAs tardan ~13 s.
 botón **Multiplayer** con dos opciones:
 
 * **Local:** 2, 3 o 4 jugadores en este ordenador. Cada jugador elige una
-  partida en uso o **Guest** (invitado). El juego ejecuta esas GBAs virtuales
-  en este proceso con un cable `GbaLinkHub`, como `FourSwordsLinkProbe`
-  (sección 9), y las muestra en una ventana: dos lado a lado (480×160), tres
-  o cuatro en una cuadrícula 2×2 (480×320; con tres, la cuarta casilla queda
-  en negro). El jugador 1 juega con el teclado y el primer mando, el jugador N
-  con el mando N (orden de SDL, mismos botones que en un jugador). El audio es
-  el del jugador 1; el sonido de las demás GBAs se descarta. Salir de Four
-  Swords vuelve al launcher; cerrar la ventana cierra el programa, como en un
-  jugador.
+  partida en uso o **Guest** (invitado), y un mando por su nombre; un jugador
+  puede tener además el teclado. El juego ejecuta esas GBAs virtuales en este
+  proceso con un cable `GbaLinkHub`, como `FourSwordsLinkProbe` (sección 9), y
+  las muestra en una ventana redimensionable (distribución más abajo). El
+  audio es el del jugador 1; el sonido de las demás GBAs se descarta. Salir de
+  Four Swords vuelve al launcher; cerrar la ventana cierra el programa, como
+  en un jugador.
 * **Online:** vuelve al launcher, cuya pestaña Netplay tiene las salas
   (sección 4).
 
 Lo mismo sin el launcher, para pruebas:
 `FourSwordsRecomp --local 2,guest [--save-path x.sav] game.toml` (2–4
-jugadores separados por comas, cada uno `1`–`3` o `guest`). El runner es
+jugadores separados por comas, cada uno `1`–`3` o `guest`), más
+`--local-scale fit|integer` y `--local-keyboard 1-4|none`. El runner es
 `src/fs_local.cpp`. Se le pasa a `run_game()` como un lanzamiento
 `RunOptions::netplay` sin red, así que el runtime sigue comprobando antes la
 ROM, la BIOS y los ajustes de ventana. Ayudas de depuración:
 `FSR_LOCAL_INPUTS` (un guion de botones de la sonda, sumado a los controles
-reales) y, con `--frames N`, `FSR_LOCAL_DUMP` (un BMP del último frame
-dividido).
+reales), `GBARECOMP_FORCE_DRAWABLE=WxH` (distribuye la ventana como si tuviera
+ese tamaño) y, con `--frames N`, `FSR_LOCAL_DUMP` (un BMP del último frame de
+la ventana).
+
+**Quién es el jugador N (16 nov 2026).** Un número es un jugador en todas
+partes: el jugador N es la máquina N−1, el puerto N−1 del cable, la vista N de
+la ventana y la entrada N−1 de las partidas y los mandos del plan; se oye la
+GBA del jugador 1. El juego toma el número de jugador de cada GBA de su puerto
+del cable (bits 4–5 de SIOCNT; el puerto 0 es el padre). Comprobado con
+`FourSwordsLinkProbe` y cuatro GBAs: el lobby pone "YOU" sobre P1 en la
+máquina 0, P2 en la 1 y P3 en la 2, y en la partida los botones de las
+máquinas 0–3 mueven al Link verde, rojo, azul y morado.
+
+En las pruebas con personas el orden salió invertido (dos jugadores: J1↔J2;
+tres: J1↔J3; cuatro: J1↔J4 y J2↔J3). La sesión no está invertida (arriba). El
+primer runner repartía los mandos en el orden de dispositivos de SDL:
+`HostWindow` tomaba el dispositivo 0 para el jugador 1 y el dispositivo N−1
+iba al jugador N. Un orden de dispositivos inverso al que esperan los
+jugadores da exactamente esos tres resultados, y el orden de SDL depende del
+controlador, no de la luz de jugador de cada mando. Esa es la causa probable;
+**no está confirmada** en el equipo de los probadores (la máquina de
+desarrollo no tenía ningún mando conectado). El arreglo no depende de ella:
+
+* `fsr::local_pads()` ordena los mandos por su luz de jugador (el índice de
+  jugador de SDL: la ranura XInput en los mandos de Xbox) y después por orden
+  de conexión. El orden de dispositivos de SDL no se usa.
+* La página Local muestra el mando de cada jugador por su nombre. Al mantener
+  un botón, la fila de ese mando indica "pressed". Elegir el mando de otro
+  jugador intercambia los dos.
+* El mando propio de `HostWindow` se apaga (`set_gamepad_enabled(false)`,
+  parche local 0003), así que ningún dispositivo puede mover a dos jugadores.
+* Cada jugador conserva su dispositivo toda la sesión. Si se desconecta, el
+  juego se pausa y la barra de título nombra al jugador; el mismo modelo de
+  mando al volver (o, si no, cualquier mando nuevo) ocupa el puesto libre. La
+  tecla de pausa anula la espera.
+* El teclado es de un jugador (el 1 por defecto, o de nadie), además de su
+  mando. El stick izquierdo también funciona como cruceta.
+* Las partidas y los invitados van por número de jugador; elegir mandos nunca
+  los cambia.
+
+**Distribución de la ventana y escalado (16 nov 2026).** `src/fs_layout.h`,
+comprobado por `tests/fs_layout_test.cpp`. Todas las vistas tienen el mismo
+tamaño y la proporción del original (3:2), y van juntas en el centro de la
+ventana:
+
+| Vistas | Posiciones |
+|---|---|
+| 1 | centrada (solo la distribución; aquí no hay modo de un jugador) |
+| 2 | J1 a la izquierda, J2 a la derecha, centradas en vertical |
+| 3 | J1 arriba a la izquierda, J2 arriba a la derecha, J3 abajo en el centro |
+| 4 | J1 y J2 arriba, J3 y J4 abajo |
+
+El lienzo son los propios píxeles de la ventana y cada frame de GBA se escala
+directamente a su sitio, así que nada reescala la imagen después. No se
+estira ni se recorta nada; el resto de la ventana queda en negro. Dos
+escalas:
+
+* **Ajuste** (por defecto): el mayor tamaño que cabe. Cada píxel original
+  ocupa un bloque de píxeles enteros (la escala redondeada hacia abajo) y solo
+  la fracción sobrante se mezcla en los bordes de los bloques; dentro de un
+  bloque no se mezclan píxeles. Con una escala entera es repetición exacta de
+  píxeles, y un ajuste a menos de dos píxeles de una escala entera la adopta.
+* **Entera** (`--local-scale integer`, o la casilla): todos los píxeles del
+  mismo tamaño, con bandas más grandes.
+
+En una pantalla de 1920×1080: dos vistas miden 960×640 cada una, 4× exactos,
+en los dos modos (las bandas de arriba y abajo son inevitables con dos vistas
+3:2 lado a lado); tres o cuatro vistas miden 809×539 (3,37×) con Ajuste, o
+720×480 (3×) con bandas laterales de 240 píxeles en escala entera. Entre las
+vistas hay 2 píxeles de separación, salvo cuando eso costaría una escala
+entera.
+
+La pantalla completa usa siempre el modo del escritorio. La pantalla completa
+exclusiva (`fullscreen = 2` en el launcher) cambiaba un monitor de 1920×1080 a
+1024×768 con cuatro vistas (dibujadas a 2,13×) y a 1440×900 con dos: el modo
+más cercano a la ventana, que el monitor reescala y, en 4:3, deforma (medido
+con el primer runner, 16 nov 2026).
+
+**Diagnóstico del cierre con cuatro jugadores (16 nov 2026).** No se ha
+reproducido, así que **no está arreglado**:
+
+| Ejecución | Resultado |
+|---|---|
+| `FourSwordsLinkProbe`, 2 / 3 / 4 GBAs, 3.100 frames, arranque en frío hasta el tutorial, cada GBA moviendo a su Link | sin error; hashes `39cc9470`, `e31f15aa`, `010a73b5` |
+| Primer runner, en ventana, `--local 1,guest,guest,guest`, 3.100 frames, tres veces | código de salida 0 |
+| Primer runner, pantalla completa exclusiva (el ajuste del launcher de los probadores), 4 y 2 jugadores, 600 frames | código de salida 0 (cambio de modo de arriba) |
+| Runner nuevo, 2 / 3 / 4 jugadores, 3.100 frames | terminó con normalidad |
+
+Lo que se encontró: cualquier error dentro del runner local (una entrada
+nativa que falta, porque las sesiones enlazadas no tienen intérprete de
+reserva; un error del cable; la ventana que no se abre) cerraba el programa
+con una línea en stderr, que nadie ve cuando el juego se inicia desde el
+launcher. Un error así es el tipo más probable de "cierre inesperado" en una
+parte del juego a la que no ha llegado ninguna prueba, pero no se sabe cuál
+ocurrió. Ahora el runner escribe, junto al ejecutable y sobrescribiéndolos en
+cada sesión:
+
+* `fsr_local_last.log`: versión, jugadores, partidas, mandos, tamaño de
+  ventana, eventos de mandos y de guardado y, si hay un error, el frame, los
+  bytes de modo de cada GBA y el mensaje (que también sale en un diálogo);
+* `fsr_local_last.inputs`: los botones de cada jugador, en el formato de
+  `FSR_LOCAL_INPUTS`;
+* `fsr_local_last.sav`: el guardado compartido tal como lo encontró la sesión.
+
+Para repetir una sesión: la misma lista de `--local`, `--save-path` sobre una
+copia de ese `.sav` y `FSR_LOCAL_INPUTS` con ese archivo.
+
+**Avisos sobre los gráficos (16 nov 2026).** Un probador vio colores lavados y
+sprites que titilan respecto al original. Ninguno de los dos se ha reproducido
+tal como se describió; lo que se sabe:
+
+* *Colores, hecho:* `game.toml` fijaba `[video] screen = "frontlit"`, el modelo
+  del motor para el panel con luz frontal de la GBA SP, que baja la saturación
+  y sube el negro a propósito. Se aplica cuando nada lo anula; el launcher
+  pasa su propio ajuste Screen (`raw` en el `config.ini` de la máquina de
+  pruebas). `raw` son los colores de la PPU con la expansión exacta de 5 a 8
+  bits. El mismo frame con cada modelo se ve claramente distinto (frontlit es
+  el más pálido). El valor por defecto es ahora `raw`, así que un arranque sin
+  el launcher muestra los mismos colores que con él; no está demostrado que
+  esto fuera lo que vio el probador.
+* *Colores y titileo, hecho:* la pantalla completa exclusiva pasaba la imagen
+  por el escalador del monitor en un modo no nativo y la dibujaba a 2,13× con
+  muestreo al vecino más cercano, que deja columnas de píxeles desiguales, así
+  que todo lo que se mueve titila. Arreglado con la distribución de arriba.
+* *Parpadeo, hecho:* el motor no espera al refresco del monitor
+  (`GBARECOMP_VSYNC=1` lo activa); el monitor de pruebas va a 144 Hz y el
+  juego a 59,73 Hz. Los frames crudos consecutivos de la PPU en la sala del
+  tutorial solo muestran la animación propia de los sprites, sin parpadeo en
+  frames alternos.
+* *Sin hacer:* una comparación lado a lado con una referencia (la misma ROM
+  USA en otro emulador sin corrección de color ni filtros, o la consola) en
+  la misma escena; averiguar qué ajuste tenía el probador, qué sprites
+  titilaban y dónde. Hasta entonces la causa de ese aviso sigue abierta. No se
+  ha añadido saturación, interpolación ni mezcla de frames.
 
 **Partidas (decidido el 23 oct 2026): fusión por ranura.** Si no, cada GBA
 tendría su copia completa de la EEPROM del cartucho, y la última en escribir
@@ -599,9 +730,66 @@ fondo sigue abierta (sección 9).
   esa partida llegan al `.sav`.
 * El flujo con ventana (launcher → partidas → Multiplayer → Local) está
   compilado y sus piezas se han ejecutado, pero nadie lo ha recorrido aún con
-  clics.
+  clics, y la elección de mandos nueva no se ha probado con mandos reales
+  (orden, indicador "pressed", desconectar y volver a conectar).
+* Una partida real con cuatro personas, y cualquier cosa más allá del
+  tutorial con dos o tres.
 * El juego en línea (`multiplayer_runner.cpp`, upstream) nunca escribe el
   `.sav` de un jugador, solo checkpoints de la pareja, así que el progreso en
   línea se pierde. El arreglo es el mismo que aquí, en el motor (un PR
   upstream).
-* Los mandos se asignan en el orden de SDL; aún no se pueden reordenar.
+* Lo elegido en la página Local (mandos, teclado, escala) dura hasta cerrar
+  el programa; no se guarda en un archivo de ajustes.
+* Los botones del mando son fijos (la disposición estándar de SDL); solo el
+  teclado sigue a `keybinds.ini`.
+
+## 11. Pantalla ancha real 🔬 (hallazgos, 16 nov 2026)
+
+Objetivo: una vista 16:9 que enseñe más mundo, conservando la imagen 3:2 como
+opción. No una imagen estirada, recortada o con bandas. **Aún no está
+disponible**; esta sección es lo que una adaptación tiene que resolver.
+
+**Lo que da el motor.** La PPU puede dibujar columnas extra
+(`set_view_margins`), los juegos aportan lo que va en ellas mediante
+proveedores (`g_ws_tilemap_provider`, hooks de posición de BG y OBJ,
+`g_ws_pillarbox`), y `GbaNetplayPresentation` es una PPU espejo por máquina
+que solo existe en el anfitrión: la PPU real sigue en 240×160 y el espejo
+nunca entra en un snapshot ni en un hash de estado. `widescreen = 0` en
+`game.toml` no activa nada de esto por sí solo.
+
+**Prototipo.** `FourSwordsLinkProbe --wide 284` da a cada máquina un espejo de
+284 columnas sin proveedor y guarda las dos imágenes. Resultados en la
+ejecución del tutorial con cuatro GBAs:
+
+* El hash de la sesión es el mismo con y sin los espejos (`010a73b5`): una
+  presentación más ancha no llega a la lógica del juego, a las colisiones ni
+  al enlace.
+* En la partida, BG0–BG3 son todos mapas de texto de 256×256 (`BGxCNT` =
+  `1F0C`, `1D05`, `1C02`, `1E07`). El hardware tiene 16 píxeles más allá de
+  los 240 de pantalla; 284 necesita 44. Los márgenes enseñan el borde opuesto
+  del mapa, enrollado, no la sala.
+* Los corazones, el contador de rupias y el icono del objeto conservan sus
+  coordenadas de 240 de ancho, así que quedan dentro de la imagen en vez de en
+  sus bordes.
+* La cámara se detiene en el borde de la sala calculado para 240 píxeles.
+
+**Lo que necesita una adaptación real,** por orden:
+
+1. El mapa de tiles de la sala en RAM (los mapas del hardware son solo una
+   ventana deslizante sobre él) y un proveedor de tilemap que lo lea para las
+   columnas de margen. La referencia son los nombres de *The Minish Cap*
+   (`zeldaret/tmc`); solo direcciones y nombres.
+2. El HUD llevado a los bordes de la imagen ancha con los hooks de posición
+   de OBJ/BG, solo en el espejo.
+3. Una regla para las salas más estrechas que la vista y para los topes de la
+   cámara: enseñar lo que existe y bandas para el resto.
+4. Los sprites cerca de los bordes. El juego decide qué objetos existen según
+   su propia vista de 240; pueden aparecer de golpe dentro de los márgenes.
+   Enseñarlos antes es cambiar la lógica del juego, y eso no puede pasar:
+   todas las GBAs de una sesión tienen que calcular lo mismo.
+5. Título, lobby, menús, presentación de fase y escenas siguen en 3:2 con
+   bandas (`g_ws_pillarbox`), y se listarán aquí cuando se conozcan.
+
+La distribución de la ventana ya está preparada: `local_layout()` recibe el
+tamaño de la vista, y su prueba cubre vistas de 284×160. La página Local
+ofrecerá 16:9 solo cuando los pasos 1–3 funcionen en al menos una fase.

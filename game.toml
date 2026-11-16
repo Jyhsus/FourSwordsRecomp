@@ -262,7 +262,7 @@ debug_port   = 19890
 window_title = "FourSwordsRecomp"
 
 [video]
-screen = "frontlit"
+screen = "raw"
 widescreen = 0
 
 [audio]

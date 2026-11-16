@@ -104,7 +104,10 @@ std::string sdl_base_path() {
 
 class Screen {
 public:
-    explicit Screen(const SlotScreen& s) : paths_(s) { reload(); }
+    explicit Screen(const SlotScreen& s) : paths_(s), local_(s.local) { reload(); }
+    ~Screen() {
+        for (SDL_GameController* pad : probes_) SDL_GameControllerClose(pad);
+    }
 
     // One frame of UI; returns a slot or a kSlotScreen code once chosen, else kStay.
     int draw(const ImFont* title_font);
@@ -121,6 +124,7 @@ private:
     void erase_popup();
     int multiplayer_popup();
     void default_local_plan();
+    bool pad_pressed(const LocalPad& pad);
 
     SlotScreen paths_;
     std::optional<Image> image_;   // empty when there is no .sav yet
@@ -135,6 +139,7 @@ private:
     enum class Page { Choose, Local, Online };
     Page page_ = Page::Choose;     // of the Multiplayer popup
     LocalPlan local_;
+    std::vector<SDL_GameController*> probes_;   // opened to show which pad is being pressed
 };
 
 void Screen::reload() {
@@ -271,7 +276,27 @@ void Screen::erase_popup() {
     ImGui::EndPopup();
 }
 
-// Player N gets the N-th file in use; the others play as guests.
+// True while any button of that controller is held, so players can see which
+// entry of the list is the pad in their hands.
+bool Screen::pad_pressed(const LocalPad& pad) {
+    SDL_GameController* controller = SDL_GameControllerFromInstanceID(pad.instance);
+    if (!controller) {
+        for (int device = 0; device < SDL_NumJoysticks() && !controller; ++device) {
+            if (SDL_JoystickGetDeviceInstanceID(device) == pad.instance) {
+                controller = SDL_GameControllerOpen(device);
+                if (controller) probes_.push_back(controller);
+            }
+        }
+    }
+    if (!controller) return false;
+    for (int button = 0; button < SDL_CONTROLLER_BUTTON_MAX; ++button) {
+        if (SDL_GameControllerGetButton(controller, static_cast<SDL_GameControllerButton>(button))) return true;
+    }
+    return false;
+}
+
+// Player N gets the N-th file in use; the others play as guests. Controllers,
+// keyboard and scale keep what the player last chose.
 void Screen::default_local_plan() {
     local_.save_path = paths_.save_path;
     local_.file.fill(kGuestFile);
@@ -310,6 +335,7 @@ int Screen::multiplayer_popup() {
             ImGui::SameLine();
             ImGui::RadioButton(std::to_string(n).c_str(), &local_.players, n);
         }
+        const std::vector<LocalPad> pads = local_pads();
         for (int p = 0; p < local_.players; ++p) {
             ImGui::PushID(p);
             ImGui::AlignTextToFramePadding();
@@ -333,15 +359,50 @@ int Screen::multiplayer_popup() {
                 }
                 ImGui::EndCombo();
             }
+            // The controller is chosen by name, never by SDL's device order.
+            auto pad_label = [&pads](int index) {
+                if (index == kNoPad) return std::string("No controller");
+                std::string text = "Controller " + std::to_string(index + 1);
+                return index < static_cast<int>(pads.size()) ? text + "  " + pads[index].name
+                                                             : text + "  (not connected)";
+            };
             ImGui::SameLine();
-            ImGui::TextDisabled(p == 0 ? "keyboard + controller 1" : "controller %d", p + 1);
+            ImGui::SetNextItemWidth(300.0f);
+            if (ImGui::BeginCombo("##pad", pad_label(local_.pad[p]).c_str())) {
+                for (int index = kNoPad; index < static_cast<int>(pads.size()); ++index) {
+                    if (!ImGui::Selectable(pad_label(index).c_str(), local_.pad[p] == index)) continue;
+                    // Taking another player's controller swaps the two.
+                    for (int q = 0; q < kLocalMaxPlayers; ++q) {
+                        if (q != p && index != kNoPad && local_.pad[q] == index) local_.pad[q] = local_.pad[p];
+                    }
+                    local_.pad[p] = index;
+                }
+                ImGui::EndCombo();
+            }
+            ImGui::SameLine();
+            bool keyboard = local_.keyboard == p;
+            if (ImGui::Checkbox("Keyboard", &keyboard)) local_.keyboard = keyboard ? p : -1;
+            if (local_.pad[p] >= 0 && local_.pad[p] < static_cast<int>(pads.size()) &&
+                pad_pressed(pads[local_.pad[p]])) {
+                ImGui::SameLine();
+                ImGui::TextColored(ImVec4(0.55f, 1.0f, 0.6f, 1.0f), "pressed");
+            }
             ImGui::PopID();
         }
-        const int pads = SDL_NumJoysticks();
-        if (pads < local_.players) {
-            ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.4f, 1.0f),
-                               "%d controller(s) connected; players without one cannot move.", pads);
+        if (local_.keyboard >= local_.players) local_.keyboard = -1;
+        int unable = 0;
+        for (int p = 0; p < local_.players; ++p) {
+            unable += local_.keyboard != p &&
+                      (local_.pad[p] < 0 || local_.pad[p] >= static_cast<int>(pads.size()));
         }
+        ImGui::TextDisabled("Hold a button on a controller to see whose it is.");
+        if (unable) {
+            ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.4f, 1.0f),
+                               "%d player(s) have no connected controller or keyboard and cannot move.", unable);
+        }
+        ImGui::Checkbox("Whole-number scale", &local_.integer_scale);
+        ImGui::SameLine();
+        ImGui::TextDisabled("every pixel the same size; larger borders");
         ImGui::TextDisabled("Each file is saved back on its own; a guest's progress is not kept.");
         ImGui::Separator();
         // Every file is played by one GBA at most (its blocks are merged back).

@@ -1,0 +1,92 @@
+From: Jesús <jesus33050@gmail.com>
+Subject: [PATCH] host_window: let the host turn off the built-in controller
+
+HostWindow opens the first game controller SDL lists and adds its buttons
+to Events::keyinput. That is right for one player. A host that shows
+several local players in one window reads every controller itself, one per
+player, and then the built-in one is in the way: the same device drives
+the window's player and whichever player the host gave it to, and which
+device it is depends on SDL's enumeration order, not on the host's choice.
+
+HostWindow::set_gamepad_enabled(false) closes that controller and stops
+the window from opening another (at open, on hot-plug and after a
+removal); set_gamepad_enabled(true) restores the default. The keyboard,
+touch pad and assist bindings are unchanged. Default behaviour is the
+same as before.
+
+Used by FourSwordsRecomp's local split-screen multiplayer, where player N
+plays with the controller the player chose for seat N.
+
+---
+diff --git a/src/runtime/host_window.cpp b/src/runtime/host_window.cpp
+index 45b0502..b4dff01 100644
+--- a/src/runtime/host_window.cpp
++++ b/src/runtime/host_window.cpp
+@@ -354,6 +354,7 @@ struct Backend {
+     SDL_GameController* controller = nullptr;
+     SDL_JoystickID      controller_id = -1;
+     bool                controller_gyro = false;
++    bool                gamepad_enabled = true;
+     SDL_Sensor*         device_gyro = nullptr;
+     bool                device_gyro_motion_logged = false;
+     // One host finger. Exactly one owner: the virtual pad (buttons), the pad
+@@ -572,7 +573,7 @@ bool open_game_controller(Backend* b, int device_index) {
+ }
+ 
+ void open_first_game_controller(Backend* b) {
+-    if (!b || b->controller) return;
++    if (!b || b->controller || !b->gamepad_enabled) return;
+     for (int i = 0; i < SDL_NumJoysticks(); ++i) {
+         if (open_game_controller(b, i)) return;
+     }
+@@ -2486,6 +2487,15 @@ void HostWindow::set_fullscreen(int mode) {
+     }
+ }
+ 
++void HostWindow::set_gamepad_enabled(bool enabled) {
++    if (!open_ || !impl_) return;
++    auto* b = static_cast<Backend*>(impl_);
++    if (b->gamepad_enabled == enabled) return;
++    b->gamepad_enabled = enabled;
++    if (enabled) open_first_game_controller(b);
++    else close_game_controller(b);
++}
++
+ int HostWindow::fullscreen() const {
+     if (!open_ || !impl_) return 0;
+     return static_cast<const Backend*>(impl_)->fullscreen;
+@@ -2822,7 +2832,8 @@ HostWindow::Events HostWindow::pump() {
+             ev.terminating = true;
+             ev.quit = true;
+         } else if (e.type == SDL_CONTROLLERDEVICEADDED) {
+-            if (!b->controller) open_game_controller(b, e.cdevice.which);
++            if (!b->controller && b->gamepad_enabled)
++                open_game_controller(b, e.cdevice.which);
+         } else if (e.type == SDL_CONTROLLERDEVICEREMOVED) {
+             if (b->controller &&
+                 e.cdevice.which == b->controller_id) {
+@@ -3171,6 +3182,7 @@ void HostWindow::load_input_config(const char* /*dir*/,
+                                    bool /*assist_tools_default*/,
+                                    int /*fast_forward_multiplier_default*/) {}
+ void HostWindow::set_fullscreen(int /*mode*/) {}
++void HostWindow::set_gamepad_enabled(bool /*enabled*/) {}
+ int  HostWindow::fullscreen() const { return 0; }
+ void HostWindow::adjust_scale(int /*delta*/) {}
+ void HostWindow::set_volume(int /*pct*/) {}
+diff --git a/src/runtime/host_window.h b/src/runtime/host_window.h
+index ddd3794..c4b238b 100644
+--- a/src/runtime/host_window.h
++++ b/src/runtime/host_window.h
+@@ -92,6 +92,12 @@ public:
+     // Out-of-range values clamp to 0..2. fullscreen() reports the current mode.
+     void set_fullscreen(int mode);
+     int  fullscreen() const;
++    // The window opens the first game controller and adds its buttons to
++    // Events::keyinput. A host that reads controllers itself (several local
++    // players in one window, each with their own pad) turns that off: the
++    // controller is closed and none is opened until it is enabled again.
++    // The keyboard and touch pad are unaffected.
++    void set_gamepad_enabled(bool enabled);
+     void adjust_scale(int delta);       // integer window scale, clamped 1..8
+     void set_volume(int pct);           // 0..100, applied to pushed samples
+     int  volume() const;
