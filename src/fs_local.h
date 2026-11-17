@@ -38,6 +38,7 @@ struct LocalPlan {
     std::array<int, kLocalMaxPlayers> pad{0, 1, 2, 3};
     int keyboard = 0;                                  // the player who also has the keyboard, or -1
     bool integer_scale = false;                        // whole-number scale, larger bars
+    bool wide = false;                                 // 16:9 views (fs_wide.h); needs the netplay build
     std::filesystem::path save_path;                   // the shared .sav
 };
 

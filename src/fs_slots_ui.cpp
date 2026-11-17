@@ -403,6 +403,9 @@ int Screen::multiplayer_popup() {
         ImGui::Checkbox("Whole-number scale", &local_.integer_scale);
         ImGui::SameLine();
         ImGui::TextDisabled("every pixel the same size; larger borders");
+        ImGui::Checkbox("16:9 view (experimental)", &local_.wide);
+        ImGui::SameLine();
+        ImGui::TextDisabled("more of the stage to each side; off = the original 3:2");
         ImGui::TextDisabled("Each file is saved back on its own; a guest's progress is not kept.");
         ImGui::Separator();
         // Every file is played by one GBA at most (its blocks are merged back).

@@ -22,6 +22,9 @@
 #include "fs_boot.h"
 #include "fs_layout.h"
 #include "fs_save.h"
+#if defined(FSR_WIDE_VIEW)
+#include "fs_wide.h"
+#endif
 #include "host_window.h"
 #include "multiplayer_launch.h"
 #include "multiplayer_session.h"
@@ -378,10 +381,36 @@ int run_session(const gbarecomp::GbaNetplayLaunch& launch, const gbarecomp::GbaN
         for (unsigned id : ids) log.line("player %u saved file %d", id + 1, plan.file[id] + 1);
     };
 
+    // 16:9: each GBA gets a host-only mirror PPU that draws 284 columns, the
+    // extra ones from the stage's own map (fs_wide.cpp). The GBAs themselves
+    // stay 240 wide, so the game and the link are the same in both views.
+    int view_w = kWidth;
+#if defined(FSR_WIDE_VIEW)
+    std::vector<std::unique_ptr<GbaNetplayPresentation>> mirrors;
+    struct Detach {
+        GbaMultiplayerSession& session;
+        unsigned players;
+        ~Detach() {
+            for (unsigned id = 0; id < players; ++id) session.machine(id).ppu.set_presentation_observer(nullptr);
+        }
+    } detach{session, players};
+    if (plan.wide) {
+        view_w = static_cast<int>(kWideViewWidth);
+        for (unsigned id = 0; id < players; ++id) {
+            mirrors.push_back(std::make_unique<GbaNetplayPresentation>(wide_view_policy()));
+            mirrors.back()->request_width(kWideViewWidth);
+            session.machine(id).ppu.set_presentation_observer(mirrors.back().get());
+        }
+        log.line("view: 16:9, %d columns", view_w);
+    }
+#else
+    if (plan.wide) log.line("view: 16:9 is not in this build; using 3:2");
+#endif
+
     // The window starts at the views' own size times the launcher's scale and
     // can be resized freely; the picture is redrawn for whatever size it has.
     const int columns = 2, rows = players > 2 ? 2 : 1;
-    const int native_w = kWidth * columns + kViewGap * (columns - 1);
+    const int native_w = view_w * columns + kViewGap * (columns - 1);
     const int native_h = kHeight * rows + kViewGap * (rows - 1);
     const int scale = rows > 1 ? std::max(1, boot.scale - 1) : boot.scale;
     const std::string title = boot.title + " - Local multiplayer (" + std::to_string(players) + " players)";
@@ -497,19 +526,28 @@ int run_session(const gbarecomp::GbaNetplayLaunch& launch, const gbarecomp::GbaN
                 canvas_w = drawable_w;
                 canvas_h = drawable_h;
                 canvas.assign(static_cast<std::size_t>(canvas_w) * canvas_h * 3, 0);
-                layout = local_layout(static_cast<int>(players), canvas_w, canvas_h, kWidth, kHeight,
+                layout = local_layout(static_cast<int>(players), canvas_w, canvas_h, view_w, kHeight,
                                       plan.integer_scale);
-                scaler.resize(kWidth, kHeight, layout.view[0].w, layout.view[0].h);
+                scaler.resize(view_w, kHeight, layout.view[0].w, layout.view[0].h);
                 log.line("window %dx%d, each view %dx%d (%.3fx)", canvas_w, canvas_h, layout.view[0].w,
-                         layout.view[0].h, static_cast<double>(layout.view[0].w) / kWidth);
+                         layout.view[0].h, static_cast<double>(layout.view[0].w) / view_w);
             }
             window.set_surface_size(canvas_w, canvas_h);
             const std::size_t stride = static_cast<std::size_t>(canvas_w) * 3;
             for (unsigned id = 0; id < players; ++id) {
                 const ViewRect& view = layout.view[id];
                 if (view.w < 1 || view.h < 1) continue;
-                scaler.blit(session.machine(id).ppu.latched_framebuffer(),
-                            canvas.data() + view.y * stride + static_cast<std::size_t>(view.x) * 3, stride);
+                const std::uint8_t* pixels = nullptr;
+#if defined(FSR_WIDE_VIEW)
+                // The mirror has no picture until its first whole frame.
+                if (id < mirrors.size() && mirrors[id]->width() == static_cast<unsigned>(view_w)) {
+                    pixels = mirrors[id]->pixels();
+                }
+                if (id < mirrors.size() && !pixels) continue;
+#endif
+                if (!pixels) pixels = session.machine(id).ppu.latched_framebuffer();
+                scaler.blit(pixels, canvas.data() + view.y * stride + static_cast<std::size_t>(view.x) * 3,
+                            stride);
             }
             window.present(canvas.data());
         }

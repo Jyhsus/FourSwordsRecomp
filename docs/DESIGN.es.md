@@ -764,8 +764,10 @@ fondo sigue abierta (sección 9).
 ## 11. Pantalla ancha real 🔬 (hallazgos, 16 nov 2026)
 
 Objetivo: una vista 16:9 que enseñe más mundo, conservando la imagen 3:2 como
-opción. No una imagen estirada, recortada o con bandas. **Aún no está
-disponible**; esta sección es lo que una adaptación tiene que resolver.
+opción. No una imagen estirada, recortada o con bandas. **Experimental**: el
+multijugador local la ofrece como opción (`--local-view 16:9`, o la casilla de
+la página Local), comprobada solo en la fase del tutorial; 3:2 sigue siendo el
+valor por defecto.
 
 **Lo que da el motor.** La PPU puede dibujar columnas extra
 (`set_view_margins`), los juegos aportan lo que va en ellas mediante
@@ -808,6 +810,47 @@ ejecución del tutorial con cuatro GBAs:
 5. Título, lobby, menús, presentación de fase y escenas siguen en 3:2 con
    bandas (`g_ws_pillarbox`), y se listarán aquí cuando se conozcan.
 
-La distribución de la ventana ya está preparada: `local_layout()` recibe el
-tamaño de la vista, y su prueba cubre vistas de 284×160. La página Local
-ofrecerá 16:9 solo cuando los pasos 1–3 funcionen en al menos una fase.
+**Primera versión que funciona (16 nov 2026).** `src/fs_wide.cpp` es la
+política de vista del juego; `src/fs_local.cpp` da a cada GBA un espejo de 284
+columnas cuando se elige 16:9, y `FourSwordsLinkProbe --wide 284 --room 1`
+hace lo mismo sin ventana. Lo que lee, todo encontrado comparando los mapas de
+tiles del hardware con la RAM (`--dump 1` escribe la memoria de cada GBA en
+cada frame de `--shots`):
+
+| Dirección | Qué es |
+|---|---|
+| `0x03000470`, `0x03000472` (u16) | Cámara X e Y: el píxel del mundo en la esquina superior izquierda de la pantalla. BG1 y BG2 se desplazan con sus 9 bits bajos |
+| `0x03000478`, `0x0300047A` (u16) | Ancho y alto de la fase en píxeles (1008×1008 en el tutorial) |
+| `0x020031D0` | Entradas de tile de BG1 (capa superior) para toda la fase: 128×128 entradas de hardware, `0x100` bytes por fila |
+| `0x02016D90` | Lo mismo para BG2 (capa inferior) |
+
+En el tutorial, con cuatro GBAs, los 30×20 tiles visibles de las dos capas
+coinciden con esos búferes entrada por entrada (600 de 600) en todas las
+capturas, y la fase entera se puede dibujar a partir de ellos.
+
+* Paso 1 ✅: las columnas de margen de BG1 y BG2 salen de esos búferes, dentro
+  del tamaño de la fase. BG0 (el HUD y el texto) y BG3 no dibujan nada en los
+  márgenes.
+* Paso 3 ✅ (horizontal): donde la cámara se detiene en el borde de la fase,
+  las 240 columnas nativas se deslizan hacia ese lado de la imagen en vez de
+  dejar un margen vacío.
+* Paso 5, en parte: fuera del modo de juego 2 (título, lobby, pantallas de
+  partidas y menús) los márgenes quedan en negro. No se ha mirado qué pasa
+  dentro del modo 2 en la presentación de fase, en los cuadros de texto ni en
+  las transiciones entre zonas.
+* Paso 2 sin hacer: los corazones, las rupias y el icono del objeto siguen
+  donde los pone la pantalla de 240, a 22 píxeles de cada lado.
+* Paso 4 sin hacer: los sprites que el juego coloca más allá de las 240
+  columnas se ven en los márgenes como los dibujaría el hardware; los objetos
+  que el juego aún no ha creado no, y pueden aparecer de golpe. No se ha
+  comprobado más allá de la primera sala del tutorial.
+* El hash de sesión de la ejecución de la sonda con cuatro GBAs es el mismo en
+  3:2 y en 16:9 (`010a73b5`).
+
+Sin comprobar: cualquier otra fase (los búferes contienen 1024×1024 píxeles
+como mucho, y no se sabe si todas las fases los usan igual), los bordes
+verticales, el juego con personas y la velocidad en una máquina lenta (cada
+GBA se dibuja dos veces).
+
+La distribución de la ventana recibe el tamaño de la vista: cuatro vistas de
+284×160 llenan una pantalla de 1920×1080 (957×539 cada una).

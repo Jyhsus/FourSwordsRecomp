@@ -77,6 +77,7 @@ endif()
 add_library(fsr_game OBJECT
     src/fs_boot.cpp
     src/fs_save.cpp
+    src/fs_wide.cpp
     ${GAME_GENERATED_SOURCES})
 target_include_directories(fsr_game PUBLIC
     src
@@ -134,6 +135,10 @@ if(GBARECOMP_NETPLAY)
         "${CMAKE_CURRENT_SOURCE_DIR}" "${GBA_GAME_GENERATED_ROOT}")
     set_property(SOURCE src/main.cpp APPEND PROPERTY
         COMPILE_DEFINITIONS GBAGAME_NETPLAY=1)
+    # The 16:9 view's mirror PPU (multiplayer_view.cpp) is part of the netplay
+    # library; without it local multiplayer keeps the 3:2 view.
+    set_property(SOURCE src/fs_local.cpp APPEND PROPERTY
+        COMPILE_DEFINITIONS FSR_WIDE_VIEW=1)
 endif()
 
 # ── Launcher (recomp-ui): ROM/BIOS picker with SHA-1 check, settings, netplay lobby ──

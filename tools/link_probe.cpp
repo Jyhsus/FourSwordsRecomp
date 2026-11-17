@@ -4,13 +4,16 @@
 //   FourSwordsLinkProbe --rom R --bios B --out PREFIX --frames N
 //       --save0 A.sav --save1 B.sav [--save2 .. --save3 ..]
 //       [--slot 1-3] [--inputs FILE] [--shots F,F,..] [--trace K]
-//       [--load PREFIX.state]
+//       [--load PREFIX.state] [--wide W [--room 1]] [--dump 1]
 //
 // Every machine runs the same generated code and the same fs_boot hooks as
 // the game executable; --slot boots every machine into that file of its own
 // save. --inputs lines are "frame buttons0 buttons1 ..." (pressed = 1, GBA
 // bit order: A=1 B=2 Select=4 Start=8 Right=16 Left=32 Up=64 Down=128 R=256
 // L=512), held until the next line. --shots writes PREFIX-fF-seatN.bmp.
+// --wide W also renders each machine W columns wide through a host-only
+// mirror (PREFIX-fF-seatN-wide.bmp); --dump 1 writes each machine's memory
+// at every shot (PREFIX-fF-seatN.mem: EWRAM, IWRAM, VRAM, palette, OAM, IO).
 // --trace K prints the mode bytes and SIO registers of every machine every K
 // frames. At the end it writes PREFIX.state (resume with --load) and each
 // machine's EEPROM to PREFIX-seatN.sav; the input saves are only read.
@@ -28,6 +31,7 @@
 #include <vector>
 
 #include "fs_boot.h"
+#include "fs_wide.h"
 #include "gba_bios.h"
 #include "multiplayer_session.h"
 #include "multiplayer_view.h"
@@ -79,6 +83,7 @@ struct Args {
     std::string rom, bios, out, inputs, load;
     std::vector<std::string> saves;
     unsigned frames = 0, trace = 0, wide = 0;
+    bool dump = false, room = false;
     int slot = -1;
     std::set<unsigned> shots;
 };
@@ -98,6 +103,8 @@ Args parse(int argc, char** argv) {
         else if (k == "--frames") a.frames = std::stoul(v);
         else if (k == "--trace") a.trace = std::stoul(v);
         else if (k == "--wide") a.wide = std::stoul(v);
+        else if (k == "--dump") a.dump = v != "0";
+        else if (k == "--room") a.room = v != "0";
         else if (k == "--slot") a.slot = std::stoi(v) - 1;
         else if (k.rfind("--save", 0) == 0 && k.size() == 7 && k[6] >= '0' && k[6] <= '3')
             a.saves[k[6] - '0'] = v;
@@ -181,8 +188,11 @@ int main(int argc, char** argv) {
         // tilemaps and OAM hold beyond the native view (DESIGN section 11).
         std::vector<std::unique_ptr<GbaNetplayPresentation>> wide;
         if (a.wide > 240) {
+            // --room 1: the game's own policy (src/fs_wide.cpp) fills the
+            // margins from the stage's tile map; without it there is no provider.
             GbaNetplayViewPolicy policy;
             policy.supported = true;
+            if (a.room) policy = fsr::wide_view_policy();
             for (unsigned id = 0; id < players; ++id) {
                 wide.push_back(std::make_unique<GbaNetplayPresentation>(policy));
                 wide.back()->request_width(a.wide);
@@ -219,6 +229,18 @@ int main(int argc, char** argv) {
                 for (unsigned id = 0; id < players; ++id) {
                     write_bmp(a.out + "-f" + std::to_string(shown) + "-seat" + std::to_string(id) + ".bmp",
                               session.machine(id).ppu.latched_framebuffer());
+                    if (a.dump) {
+                        // EWRAM, IWRAM, VRAM, palette, OAM and the IO page, in that order.
+                        auto& bus = session.machine(id).bus;
+                        std::ofstream f(a.out + "-f" + std::to_string(shown) + "-seat" + std::to_string(id) + ".mem",
+                                        std::ios::binary);
+                        const auto put = [&f](const std::uint8_t* p, std::size_t n) {
+                            f.write(reinterpret_cast<const char*>(p), static_cast<std::streamsize>(n));
+                        };
+                        put(bus.ewram_ptr(), 0x40000); put(bus.iwram_ptr(), 0x8000);
+                        put(bus.vram_ptr(), 0x18000); put(bus.pal_ptr(), 0x400);
+                        put(bus.oam_ptr(), 0x400); put(bus.io().raw(), 0x400);
+                    }
                     if (id < wide.size() && wide[id]->pixels()) {
                         write_bmp(a.out + "-f" + std::to_string(shown) + "-seat" + std::to_string(id) + "-wide.bmp",
                                   wide[id]->pixels(), static_cast<int>(wide[id]->width()));

@@ -721,8 +721,9 @@ this points at our timing on the parent's path (the recompiled CPU reaching
 ## 11. Real widescreen 🔬 (findings, 16 Nov 2026)
 
 Goal: a 16:9 view that shows more of the world, with the 3:2 picture kept as
-an option. Not a stretched, cropped or letterboxed picture. **Not available
-yet**; this section is what an adaptation has to solve.
+an option. Not a stretched, cropped or letterboxed picture. **Experimental**:
+local multiplayer has it as an option (`--local-view 16:9`, or the checkbox on
+the Local page), checked only in the tutorial stage; 3:2 stays the default.
 
 **What the engine gives.** The PPU can render extra columns
 (`set_view_margins`), games supply what goes in them through providers
@@ -762,6 +763,43 @@ four-GBA tutorial run:
 5. Title, lobby, menus, stage intro and cut-scenes stay 3:2 with bars
    (`g_ws_pillarbox`), and are listed here when known.
 
-The window layout is ready for it: `local_layout()` takes the view size, and
-284×160 views are covered by its test. The Local page will offer 16:9 only
-when steps 1–3 work on at least one stage.
+**First working version (16 Nov 2026).** `src/fs_wide.cpp` is the game's
+view policy; `src/fs_local.cpp` gives each GBA a mirror 284 columns wide when
+16:9 is chosen, and `FourSwordsLinkProbe --wide 284 --room 1` does the same
+without a window. What it reads, all found by matching the hardware tile maps
+against RAM (`--dump 1` writes the memory of every GBA at each `--shots`
+frame):
+
+| Address | What |
+|---|---|
+| `0x03000470`, `0x03000472` (u16) | Camera X and Y: the world pixel at the screen's top-left. BG1 and BG2 scroll by their low 9 bits |
+| `0x03000478`, `0x0300047A` (u16) | Stage width and height in pixels (1008×1008 in the tutorial) |
+| `0x020031D0` | BG1 (upper layer) tile entries for the whole stage: 128×128 hardware entries, `0x100` bytes per row |
+| `0x02016D90` | The same for BG2 (lower layer) |
+
+In the tutorial, with four GBAs, the visible 30×20 tiles of both layers match
+those buffers entry for entry (600 of 600) in every capture, and the whole
+stage can be drawn from them.
+
+* Step 1 ✅: margin columns of BG1 and BG2 come from those buffers, inside the
+  stage's size. BG0 (the HUD and text) and BG3 draw nothing in the margins.
+* Step 3 ✅ (horizontal): where the camera stops at the stage's edge, the 240
+  native columns slide toward that side of the picture instead of leaving an
+  empty margin.
+* Step 5, partly: outside game mode 2 (title, lobby, file and menu screens)
+  the margins are black. What happens inside mode 2 on the stage intro, on
+  text boxes and on transitions between areas has not been looked at.
+* Step 2 not done: the hearts, rupees and item icon stay where the 240-wide
+  screen puts them, 22 pixels in from each side.
+* Step 4 not done: sprites the game places beyond 240 columns show in the
+  margins as the hardware would draw them; objects the game has not created
+  yet do not, and may pop in. Not checked beyond the tutorial's first room.
+* The session hash of the four-GBA probe run is the same in 3:2 and in 16:9
+  (`010a73b5`).
+
+Not checked: any other stage (the buffers hold 1024×1024 pixels at most, and
+whether every stage uses them the same way is unknown), vertical edges, play
+with people, and speed on a slow machine (each GBA is drawn twice).
+
+The window layout takes the view size: four 284×160 views fill a 1920×1080
+screen (957×539 each).

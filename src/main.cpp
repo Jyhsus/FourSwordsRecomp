@@ -2,7 +2,8 @@
 //
 //   FourSwordsRecomp [--bios <path>] [--rom <path>] [--slot 1-3]
 //                    [--local 1,guest,...] [--local-scale fit|integer]
-//                    [--local-keyboard 1-4|none] [game.toml]
+//                    [--local-keyboard 1-4|none] [--local-view 3:2|16:9]
+//                    [game.toml]
 //
 // The player supplies their own GBA BIOS and their own USA cartridge dump
 // ("A Link to the Past & Four Swords", game code AZLE). Both are hash-checked
@@ -161,7 +162,9 @@ int main(int argc, char** argv) {
                         "(1-3, each at most once) or guest per player. Player N uses\n"
                         "controller N (by its player light); --local-keyboard gives the\n"
                         "keyboard to a player too (default 1). --local-scale integer\n"
-                        "keeps whole-number pixels; fit (default) fills the window.\n");
+                        "keeps whole-number pixels; fit (default) fills the window.\n"
+                        "--local-view 16:9 shows more of the stage to each side\n"
+                        "(experimental); 3:2 is the original picture.\n");
             return 0;
         }
     }
@@ -205,6 +208,12 @@ int main(int argc, char** argv) {
         return 1;
     }
     local.integer_scale = local_scale == "integer";
+    const std::string local_view = take_value_argument(args, "--local-view");
+    if (!local_view.empty() && local_view != "3:2" && local_view != "16:9") {
+        std::fprintf(stderr, "--local-view needs 3:2 or 16:9\n");
+        return 1;
+    }
+    local.wide = local_view == "16:9";
     if (!local_keyboard.empty()) local.keyboard = local_keyboard == "none" ? -1 : local_keyboard[0] - '1';
     if (local.players) {
         local.save_path = save_path_argument(args);
