@@ -4,7 +4,7 @@
 //   FourSwordsLinkProbe --rom R --bios B --out PREFIX --frames N
 //       --save0 A.sav --save1 B.sav [--save2 .. --save3 ..]
 //       [--slot 1-3] [--inputs FILE] [--shots F,F,..] [--trace K]
-//       [--load PREFIX.state] [--wide W [--room 1]] [--dump 1] [--oam-log F] [--map-log F]
+//       [--load PREFIX.state] [--wide W [--room 1]] [--dump 1] [--oam-log F] [--map-log F] [--poke F:ADDR:BYTE,...]
 //
 // Every machine runs the same generated code and the same fs_boot hooks as
 // the game executable; --slot boots every machine into that file of its own
@@ -18,6 +18,7 @@
 // --oam-log F writes PREFIX-oam-seatN.txt from frame F: camera and sprites per frame.
 // --map-log F writes PREFIX-map-seatN.txt from frame F: mode, camera, stage size and how
 // many on-screen tiles differ from the stage buffers the wide view reads.
+// --poke writes a byte to every machine's RAM before frame F (experiments only).
 // --trace K prints the mode bytes and SIO registers of every machine every K
 // frames. At the end it writes PREFIX.state (resume with --load) and each
 // machine's EEPROM to PREFIX-seatN.sav; the input saves are only read.
@@ -91,6 +92,7 @@ struct Args {
     bool dump = false, room = false;
     unsigned oam_from = 0;   // 0 = no OAM log
     unsigned map_from = 0;   // 0 = no map log
+    std::vector<std::array<std::uint32_t, 3>> pokes;   // frame, address, byte
     int slot = -1;
     std::set<unsigned> shots;
 };
@@ -114,6 +116,21 @@ Args parse(int argc, char** argv) {
         else if (k == "--room") a.room = v != "0";
         else if (k == "--oam-log") a.oam_from = std::stoul(v);
         else if (k == "--map-log") a.map_from = std::stoul(v);
+        else if (k == "--poke") {
+            // FRAME:ADDR:BYTE[,FRAME:ADDR:BYTE...], numbers in any base.
+            std::istringstream list(v);
+            std::string item;
+            while (std::getline(list, item, ',')) {
+                std::array<std::uint32_t, 3> poke{};
+                std::istringstream fields(item);
+                std::string field;
+                for (auto& value : poke) {
+                    if (!std::getline(fields, field, ':')) throw std::runtime_error("bad --poke " + item);
+                    value = static_cast<std::uint32_t>(std::stoul(field, nullptr, 0));
+                }
+                a.pokes.push_back(poke);
+            }
+        }
         else if (k == "--slot") a.slot = std::stoi(v) - 1;
         else if (k.rfind("--save", 0) == 0 && k.size() == 7 && k[6] >= '0' && k[6] <= '3')
             a.saves[k[6] - '0'] = v;
@@ -225,6 +242,19 @@ int main(int argc, char** argv) {
 
         const auto inputs = read_inputs(a, players);
         for (unsigned frame = 0; frame < a.frames; ++frame) {
+            // Experiments only: the same byte written to every machine's RAM
+            // before the frame runs, so the linked consoles stay in step.
+            for (const auto& poke : a.pokes) {
+                if (poke[0] != frame + 1) continue;
+                for (unsigned id = 0; id < players; ++id) {
+                    auto& bus = session.machine(id).bus;
+                    if (poke[1] >= 0x03000000 && poke[1] < 0x03008000)
+                        bus.iwram_ptr()[poke[1] - 0x03000000] = static_cast<std::uint8_t>(poke[2]);
+                    else if (poke[1] >= 0x02000000 && poke[1] < 0x02040000)
+                        bus.ewram_ptr()[poke[1] - 0x02000000] = static_cast<std::uint8_t>(poke[2]);
+                    else throw std::runtime_error("--poke address is not in EWRAM or IWRAM");
+                }
+            }
             session.run_frame(std::span(inputs[frame].data(), players));
             session.discard_audio_output();
             if (a.map_from && frame + 1 >= a.map_from) {

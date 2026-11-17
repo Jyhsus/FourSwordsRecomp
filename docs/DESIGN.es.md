@@ -766,7 +766,8 @@ fondo sigue abierta (sección 9).
 Objetivo: una vista 16:9 que enseñe más mundo, conservando la imagen 3:2 como
 opción. No una imagen estirada, recortada o con bandas. **Experimental**: el
 multijugador local la ofrece como opción (`--local-view 16:9`, o la casilla de
-la página Local), comprobada solo en la fase del tutorial; 3:2 sigue siendo el
+la página Local), comprobada en el tutorial y al principio de las otras cuatro
+fases; 3:2 sigue siendo el
 valor por defecto.
 
 **Lo que da el motor.** La PPU puede dibujar columnas extra
@@ -876,8 +877,8 @@ capturas, y la fase entera se puede dibujar a partir de ellos.
   ningún grupo a caballo de un corte). Si no, por ejemplo con un cuadro de
   texto abierto, el HUD se dibuja donde lo pone la pantalla de 240, así que el
   cuadro nunca se parte; por eso el HUD se mueve 22 píxeles hacia dentro
-  mientras hay un cuadro abierto. Visto en el tutorial y en la fase siguiente,
-  con y sin cuadros de texto.
+  mientras hay un cuadro abierto. Visto en los dos pisos del tutorial, con y
+  sin cuadros de texto.
 * Paso 4 ✅ para la vista de 284 columnas: el juego no corta los sprites en
   el borde de la pantalla. En una sesión grabada de dos jugadores (12.500
   frames, 620.000 sprites del mundo; `FourSwordsLinkProbe --oam-log F` escribe
@@ -898,12 +899,43 @@ capturas, y la fase entera se puede dibujar a partir de ellos.
 * El hash de sesión de la ejecución de la sonda con cuatro GBAs es el mismo en
   3:2 y en 16:9 (`010a73b5`).
 
-También se ha visto funcionar en la fase siguiente al tutorial (una sesión
-grabada de dos jugadores, repetida en 16:9 en cuatro puntos). Sin comprobar:
-las demás fases (los búferes contienen 1024×1024 píxeles como mucho, y no se
-sabe si todas las fases los usan igual), un borde superior o inferior en
-pantalla, el principio y el final de una fase (la grabación empieza dentro del
-tutorial y acaba antes de superar una fase), un HUD con más corazones o un
+**Las demás fases (16 nov 2026).** La sesión grabada solo cubre el tutorial,
+"Chambers of Insight", y su segundo piso (una nota anterior llamaba a ese piso
+"la fase siguiente al tutorial"; no lo es). Con una partida nueva no se puede
+elegir otra cosa, así que a las demás fases se llegó escribiendo en la RAM
+desde la sonda. Cómo se elige una fase:
+
+| Dirección | Qué es |
+|---|---|
+| modo 5 | "CHOOSE A STAGE", entre el lobby y la fase. Con una partida nueva el cursor solo tiene Chambers of Insight |
+| `0x03006C81` (u8) | La fase elegida en esa pantalla, 0–3 |
+| `0x03006C82` (u8) | Distinto de cero: se juega el tutorial, se haya elegido lo que se haya elegido. `0x08012C5E` guarda 4 en el byte de fase cuando está puesto, y si no la fase elegida |
+| `0x03006C84` (u8) | Piso, desde 0 |
+| `0x03006C87` (u8) | La fase en juego: 0 una cueva con agua, 1 lava, 2 un palacio en el cielo, 3 bosque, 4 Chambers of Insight (nombradas aquí por su aspecto) |
+| bloque `0x03000420` | Lo rehace `0x0802C89C` en cada piso: `+9` el juego de tiles del piso, `+0xB` el número de piso que enseña el HUD |
+
+`FourSwordsLinkProbe --poke F:DIR:BYTE,...` escribe un byte en la RAM de todas
+las GBAs antes del frame F. Manteniendo `0x03006C82` a 0 y `0x03006C81` a 0–3
+del frame 1.945 al 2.110 (la pantalla del mapa y la confirmación) se carga
+cada una de las cuatro fases en dos GBAs. Es solo un recurso de prueba: se
+salta la regla del propio juego de que el tutorial va primero, y nada en el
+juego lo hace.
+
+En cada una de las cuatro, moviendo a los dos jugadores durante 2.650 frames:
+
+* los tiles en pantalla coinciden con los búferes en todos los frames, en las
+  dos GBAs (ningún frame con un solo tile distinto), así que todas las fases
+  guardan su mapa en los mismos dos búferes; las cuatro miden 1008×1008;
+* la imagen nativa dentro de la ancha es idéntica al frame de 240;
+* aparecen en pantalla los bordes de fase a los que la grabación nunca llegó:
+  el inferior (cámara Y = 848, cueva), el izquierdo (cámara X = 0, palacio:
+  imagen nativa en la columna 0) y el derecho (cámara X = 768, bosque: imagen
+  nativa en la columna 44, sin columna vacía);
+* el HUD queda en los bordes de la imagen.
+
+Sin comprobar: los pisos posteriores de esas fases y sus jefes, un borde
+superior en pantalla, el principio de una fase tal como lo enseña el juego sin
+la elección forzada y el final de una fase, un HUD con más corazones o un
 contador de rupias más largo que los de una partida nueva, el juego con
 personas y la velocidad en una máquina lenta (cada GBA se dibuja dos veces).
 

@@ -723,7 +723,8 @@ this points at our timing on the parent's path (the recompiled CPU reaching
 Goal: a 16:9 view that shows more of the world, with the 3:2 picture kept as
 an option. Not a stretched, cropped or letterboxed picture. **Experimental**:
 local multiplayer has it as an option (`--local-view 16:9`, or the checkbox on
-the Local page), checked only in the tutorial stage; 3:2 stays the default.
+the Local page), checked in the tutorial and at the start of the four other
+stages; 3:2 stays the default.
 
 **What the engine gives.** The PPU can render extra columns
 (`set_view_margins`), games supply what goes in them through providers
@@ -825,7 +826,7 @@ stage can be drawn from them.
   places, no group across a cut). Otherwise, for example while a text box is
   open, the HUD is drawn where the 240-wide screen puts it, so the box is
   never cut; the HUD therefore steps 22 pixels inward while a box is open.
-  Seen in the tutorial and the stage after it, with and without text boxes.
+  Seen on both floors of the tutorial, with and without text boxes.
 * Step 4 ✅ for the 284-column view: the game does not cut sprites off at the
   screen's edge. Over a recorded two-player session (12,500 frames, 620,000
   world sprites; `FourSwordsLinkProbe --oam-log F` writes the camera and every
@@ -844,13 +845,44 @@ stage can be drawn from them.
 * The session hash of the four-GBA probe run is the same in 3:2 and in 16:9
   (`010a73b5`).
 
-Also seen working in the stage after the tutorial (a recorded two-player
-session replayed in 16:9 at four points). Not checked: the other stages (the
-buffers hold 1024×1024 pixels at most, and whether every stage uses them the
-same way is unknown), a top or bottom edge on screen, the start and the end of
-a stage (the recording begins inside the tutorial and ends before clearing a
-stage), a HUD with more hearts or a longer rupee count than a new file has,
-play with people, and speed on a slow machine (each GBA is drawn twice).
+**The other stages (16 Nov 2026).** The recorded session only covers the
+tutorial, "Chambers of Insight", and its second floor (an earlier note here
+called that floor "the stage after the tutorial"; it is not). A new file
+cannot pick anything else, so the other stages were reached by writing to RAM
+from the probe. How a stage is chosen:
+
+| Address | What |
+|---|---|
+| mode 5 | "CHOOSE A STAGE", between the lobby and the stage. With a new file the cursor only has Chambers of Insight |
+| `0x03006C81` (u8) | The stage chosen on that screen, 0–3 |
+| `0x03006C82` (u8) | Non-zero: the tutorial is played whatever was chosen. `0x08012C5E` stores 4 in the stage byte when this is set, else the chosen stage |
+| `0x03006C84` (u8) | Floor, from 0 |
+| `0x03006C87` (u8) | The stage being played: 0 a cave with water, 1 lava, 2 a palace in the sky, 3 forest, 4 Chambers of Insight (named here by what they look like) |
+| `0x03000420` block | Rebuilt for each floor by `0x0802C89C`: `+9` the floor's tile set, `+0xB` the floor number shown on the HUD |
+
+`FourSwordsLinkProbe --poke F:ADDR:BYTE,...` writes a byte to every GBA's RAM
+before frame F. Holding `0x03006C82` at 0 and `0x03006C81` at 0–3 from frame
+1,945 to 2,110 (the map screen and the confirmation) loads each of the four
+stages on two GBAs. This is a test device only: it skips the game's own rule
+that the tutorial comes first, and nothing in the game does it.
+
+In each of the four, with both players walked around for 2,650 frames:
+
+* the tiles on screen match the buffers on every frame, on both GBAs (no
+  frame with a single differing tile), so every stage keeps its map in the
+  same two buffers; all four are 1008×1008;
+* the native picture inside the wide one is identical to the 240-wide frame;
+* the stage edges that the recording never reached are on screen: the bottom
+  edge (camera Y = 848, cave), the left edge (camera X = 0, palace: native
+  picture at column 0) and the right edge (camera X = 768, forest: native
+  picture at column 44, no empty column);
+* the HUD is at the picture's edges.
+
+Not checked: later floors of those stages and their bosses, a top edge on
+screen, the start of a stage as the game shows it without the forced choice
+and the end of a stage, a HUD with more hearts or a longer rupee count than a
+new file has, play with people, and speed on a slow machine (each GBA is
+drawn twice).
 
 The window layout takes the view size: four 284×160 views fill a 1920×1080
 screen (957×539 each).
