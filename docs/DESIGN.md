@@ -614,6 +614,23 @@ and overwritten by each session:
 To replay a session: the same `--local` list, `--save-path` on a copy of that
 `.sav`, and `FSR_LOCAL_INPUTS` on that file.
 
+**First exit caught this way (16 Nov 2026).** A two-player game stopped in
+frame 11,684 with `multiplayer native dispatch entry is missing: 08009a90
+(Thumb)`. `0x08009A08` is a table of 8 Thumb pointers *inside the code area*
+(`0x08009A29`…`0x08009CA1`, reached by the `bx r4` at `0x080099F8`). Its
+targets are switch cases, not functions, and `tools/scan_code_pointers.ps1`
+only read the data area, from `0x08138000`. The script now also looks inside
+the code area: single pointers under the same rule as before (the target is a
+`PUSH {…, LR}`), and tables of four or more Thumb pointers in a row with at
+least three different targets, none inside the table and none on blank ROM,
+which it writes as sized `[[jump_table]]`s. On this ROM that finds 22 tables,
+of which this one was the only one not yet compiled, and no new single
+pointer; the overlay keeps its 1,354 functions and gains that table (47,033 →
+47,077 Thumb entries after regenerating). Replaying the session's inputs on a
+copy of its save now runs past that frame, to frame 12,500 (where the
+replay was told to stop). This is one missing entry found, not proof that
+there are no others; whether it was also the four-player exit is unknown.
+
 **Graphics reports (16 Nov 2026).** One tester saw washed-out colours and
 flickering sprites compared with the original. Neither has been reproduced as
 reported; what is known:

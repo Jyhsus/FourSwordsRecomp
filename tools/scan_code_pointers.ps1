@@ -3,30 +3,68 @@ param(
     [string]$Dispatch = (Join-Path $PSScriptRoot '..\generated\dispatch_table.cpp'),
     [string]$Out = (Join-Path $PSScriptRoot '..\symbols\AZLE_data_pointers.toml')
 )
-# Seeds Thumb functions that are reached only through pointers stored in ROM
-# data (object/state descriptors), which the finder does not follow. Linked
-# play has no interpreter fallback, so every such entry must be static
-# (docs/DESIGN.md, M3).
+# Seeds Thumb code that is reached only through pointers stored in the ROM,
+# which the finder does not follow. Linked play has no interpreter fallback,
+# so every such entry must be static (docs/DESIGN.md, M3 and section 10).
 #
-# A candidate is an aligned word in the data area (0x08138000 and up) whose
-# value has the Thumb bit, points into the code area (below 0x08138000), lands
-# on a PUSH {..., LR} (0xB5xx) and is not yet a Thumb entry in generated/.
+# Two kinds of candidate, both from aligned words whose value has the Thumb
+# bit and points into the code area (below 0x08138000):
+#
+# 1. Function pointers, anywhere in the ROM (data area and literal pools in
+#    the code area): the target is a PUSH {..., LR} (0xB5xx) that is not yet a
+#    Thumb entry in generated/. Written as [[extra_func]].
+# 2. Pointer tables inside the code area (inline switch tables, whose cases
+#    are not functions and so fail rule 1): four or more such words in a row,
+#    at least three different targets, no target inside the table itself, and
+#    no target on blank ROM (0x0000 / 0xFFFF). A table is written, as one
+#    sized [[jump_table]], only if a target is not yet a Thumb entry, or the
+#    table is already in the overlay. Four pointers in a row do not happen by
+#    accident in Thumb code: the high half of each word would have to decode
+#    as LSR r0, r0, #32 four times running.
+#
 # Run after tools/regen.ps1, then regenerate (regen.ps1 loads the output).
 # Writes addresses only; nothing from the ROM's contents is stored.
 $ErrorActionPreference = 'Stop'
 Add-Type @"
 using System; using System.Collections.Generic;
 public static class FsrPointerScan {
+    static bool ThumbCode(byte[] rom, uint v, uint codeEnd) {
+        return (v & 1) != 0 && v >= 0x08000001 && v < 0x08000000 + codeEnd;
+    }
     public static List<uint> Scan(byte[] rom, HashSet<uint> known, uint codeEnd) {
         var found = new SortedSet<uint>();
-        for (uint o = codeEnd; o + 4 <= (uint)rom.Length; o += 4) {
+        for (uint o = 0; o + 4 <= (uint)rom.Length; o += 4) {
             uint v = BitConverter.ToUInt32(rom, (int)o);
-            if ((v & 1) == 0 || v < 0x08000001 || v >= 0x08000000 + codeEnd) continue;
+            if (!ThumbCode(rom, v, codeEnd)) continue;
             uint target = v - 1;
             if ((BitConverter.ToUInt16(rom, (int)(target - 0x08000000)) & 0xFF00) != 0xB500) continue;
             if (!known.Contains(target)) found.Add(target);
         }
         return new List<uint>(found);
+    }
+    // Each result: table address, entry count, entries not yet known.
+    public static List<uint[]> ScanTables(byte[] rom, HashSet<uint> known, HashSet<uint> keep, uint codeEnd) {
+        var found = new List<uint[]>();
+        uint o = 0;
+        while (o + 4 <= codeEnd) {
+            uint n = 0, unknown = 0;
+            var targets = new HashSet<uint>();
+            while (o + 4 * (n + 1) <= codeEnd) {
+                uint v = BitConverter.ToUInt32(rom, (int)(o + 4 * n));
+                if (!ThumbCode(rom, v, codeEnd)) break;
+                ushort first = BitConverter.ToUInt16(rom, (int)(v - 1 - 0x08000000));
+                if (first == 0x0000 || first == 0xFFFF) break;
+                if (targets.Add(v - 1) && !known.Contains(v - 1)) unknown++;
+                n++;
+            }
+            uint addr = 0x08000000 + o;
+            bool self = false;
+            foreach (uint t in targets) self |= t >= addr && t < addr + 4 * n;
+            if (n >= 4 && targets.Count >= 3 && !self && (unknown > 0 || keep.Contains(addr)))
+                found.Add(new uint[] { addr, n, unknown });
+            o += 4 * Math.Max(n, 1);
+        }
+        return found;
     }
 }
 "@
@@ -36,16 +74,35 @@ foreach ($m in [regex]::Matches([IO.File]::ReadAllText((Resolve-Path $Dispatch))
 }
 $overlay = (Resolve-Path (Split-Path $Out)).Path + '\' + (Split-Path $Out -Leaf)
 # Entries already in the overlay stay, so re-running after a regen is stable.
+$keep = New-Object 'System.Collections.Generic.HashSet[uint32]'
 if (Test-Path -LiteralPath $overlay) {
-    foreach ($m in [regex]::Matches([IO.File]::ReadAllText($overlay), 'addr = 0x([0-9A-Fa-f]{8})')) {
+    $text = [IO.File]::ReadAllText($overlay)
+    foreach ($m in [regex]::Matches($text, '\[\[extra_func\]\]\s+addr = 0x([0-9A-Fa-f]{8})')) {
         [void]$known.Remove([Convert]::ToUInt32($m.Groups[1].Value, 16))
     }
+    foreach ($m in [regex]::Matches($text, '\[\[jump_table\]\]\s+addr\s+= 0x([0-9A-Fa-f]{8})')) {
+        [void]$keep.Add([Convert]::ToUInt32($m.Groups[1].Value, 16))
+    }
 }
-$targets = [FsrPointerScan]::Scan([IO.File]::ReadAllBytes((Resolve-Path $Rom)), $known, 0x138000)
+$bytes = [IO.File]::ReadAllBytes((Resolve-Path $Rom))   # not $rom: that is the [string] parameter
+$codeEnd = 0x138000
+$targets = [FsrPointerScan]::Scan($bytes, $known, $codeEnd)
+$tables = [FsrPointerScan]::ScanTables($bytes, $known, $keep, $codeEnd)
 $lines = @(
     '# AZLE_data_pointers.toml - generated by tools/scan_code_pointers.ps1. Do not edit.',
-    '# Thumb PUSH-LR entries referenced only from ROM data (see the script).',
+    '# Thumb PUSH-LR entries referenced only through pointers in the ROM, and',
+    '# pointer tables inside the code area (see the script).',
     '')
 foreach ($t in $targets) { $lines += '[[extra_func]]'; $lines += ('addr = 0x{0:X8}' -f $t); $lines += 'mode = "thumb"'; $lines += '' }
+foreach ($t in $tables) {
+    $lines += '[[jump_table]]'
+    $lines += ('addr         = 0x{0:X8}' -f $t[0])
+    $lines += 'stride       = 4'
+    $lines += ('count        = {0}' -f $t[1])
+    $lines += 'format       = "abs32"'
+    $lines += 'entries_mode = "auto"'
+    $lines += 'note         = "Thumb pointer table inside the code area"'
+    $lines += ''
+}
 [IO.File]::WriteAllLines($overlay, $lines)
-"$($targets.Count) entries -> $overlay"
+"$($targets.Count) function entries, $($tables.Count) code-area tables -> $overlay"

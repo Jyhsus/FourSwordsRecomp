@@ -649,6 +649,24 @@ cada sesión:
 Para repetir una sesión: la misma lista de `--local`, `--save-path` sobre una
 copia de ese `.sav` y `FSR_LOCAL_INPUTS` con ese archivo.
 
+**Primer cierre cazado así (16 nov 2026).** Una partida de dos jugadores se
+detuvo en el frame 11.684 con `multiplayer native dispatch entry is missing:
+08009a90 (Thumb)`. `0x08009A08` es una tabla de 8 punteros Thumb *dentro de la
+zona de código* (`0x08009A29`…`0x08009CA1`, a la que llega el `bx r4` de
+`0x080099F8`). Sus destinos son casos de un switch, no funciones, y
+`tools/scan_code_pointers.ps1` solo leía la zona de datos, desde `0x08138000`.
+El script mira ahora también dentro de la zona de código: punteros sueltos con
+la misma regla de antes (el destino es un `PUSH {…, LR}`) y tablas de cuatro o
+más punteros Thumb seguidos con al menos tres destinos distintos, ninguno
+dentro de la tabla y ninguno sobre ROM en blanco, que escribe como
+`[[jump_table]]` con su tamaño. En esta ROM eso encuentra 22 tablas, de las
+que esta era la única sin compilar, y ningún puntero suelto nuevo; el overlay
+conserva sus 1.354 funciones y gana esa tabla (47.033 → 47.077 entradas Thumb
+tras regenerar). Al repetir las entradas de la sesión sobre una copia de su
+guardado, ahora pasa de ese frame y llega al 12.500 (donde se le dijo que
+parase). Es una entrada que faltaba, no la prueba de que no haya más; no se
+sabe si fue también el cierre con cuatro jugadores.
+
 **Avisos sobre los gráficos (16 nov 2026).** Un probador vio colores lavados y
 sprites que titilan respecto al original. Ninguno de los dos se ha reproducido
 tal como se describió; lo que se sabe:
