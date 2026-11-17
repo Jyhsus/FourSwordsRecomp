@@ -40,6 +40,7 @@ constexpr std::uint8_t kModeStage = 2;
 constexpr std::uint32_t kMapBg1 = 0x031D0, kMapBg2 = 0x16D90;      // EWRAM offsets
 constexpr std::uint32_t kMapRowBytes = 0x100;
 constexpr int kMapPixels = 1024;
+constexpr int kMaxMismatches = 150;   // of 600-651 tiles on screen, per layer
 
 int u16(const std::uint8_t* p) { return p[0] | (p[1] << 8); }
 
@@ -68,6 +69,32 @@ int stage_tile(int bg, int hx, int sy, std::uint16_t* out) {
     *out = static_cast<std::uint16_t>(
         u16(bus->ewram_ptr() + (bg == 1 ? kMapBg1 : kMapBg2) + (y >> 3) * kMapRowBytes + (x >> 3) * 2));
     return gba::kWsTilemapReplace;
+}
+
+// How many of the tiles on the 240x160 screen differ from the stage buffer
+// at the camera's position, for BG1 or BG2. Zero while the screen is showing
+// the stage those buffers hold.
+int screen_mismatches(const gba::GbaBus* bus, int bg) {
+    const std::uint8_t* io = bus->io().raw();
+    const std::uint8_t* iw = bus->iwram_ptr();
+    const int cnt = u16(io + 0x08 + bg * 2);
+    const std::uint8_t* hw = bus->vram_ptr() + ((cnt >> 8) & 0x1F) * 0x800;
+    const std::uint8_t* map = bus->ewram_ptr() + (bg == 1 ? kMapBg1 : kMapBg2);
+    const int x0 = world(u16(iw + kCameraX), u16(io + 0x10 + bg * 4) & 0x1FF);
+    const int y0 = world(u16(iw + kCameraY), u16(io + 0x12 + bg * 4) & 0x1FF);
+    if ((cnt & 0xC000) || x0 < 0 || y0 < 0) return 31 * 21;
+    const int first_x = x0 >> 3, first_y = y0 >> 3;
+    const int columns = (x0 & 7) ? 31 : 30, rows = (y0 & 7) ? 21 : 20;
+    int different = 0;
+    for (int r = 0; r < rows; ++r) {
+        for (int c = 0; c < columns; ++c) {
+            const int tx = first_x + c, ty = first_y + r;
+            if (tx >= 128 || ty >= 128) { ++different; continue; }
+            different += u16(hw + ((ty & 31) * 32 + (tx & 31)) * 2) !=
+                         u16(map + ty * kMapRowBytes + tx * 2);
+        }
+    }
+    return different;
 }
 
 // ── HUD ─────────────────────────────────────────────────────────────────
@@ -205,13 +232,28 @@ void on_frame(const gbarecomp::ExtendedViewFrameInfo* info) {
         gba::g_ws_native_view_left = -1;
         return;
     }
+    // Inside a stage the screen does not always show the stage: between two
+    // areas it is black while the next one loads, and other screens may use
+    // BG1 and BG2 for something else. The margins are drawn only while the
+    // tiles on screen are the ones the buffers hold at the camera's position.
+    // During play at most 44 of the ~600 tiles of a layer differ, for a single
+    // frame, when the game changes part of the map; a screen that is not the
+    // stage differs everywhere.
+    if (screen_mismatches(bus, 1) > kMaxMismatches || screen_mismatches(bus, 2) > kMaxMismatches) {
+        hud_state(bus).plain = false;
+        gba::g_ws_pillarbox = 1;
+        gba::g_ws_native_view_left = -1;
+        return;
+    }
     gba::g_ws_pillarbox = 0;
     hud_state(bus).plain = plain_hud(bus);
     // The game stops its camera where a 240-pixel screen meets the stage's
     // edge. There the wide picture slides instead of showing nothing: the
     // native 240 columns move toward that side of the canvas.
     const int extra = static_cast<int>(info->extra_left + info->extra_right);
-    const int camera = u16(iw + kCameraX);
+    // The scroll register, not the camera variable, is what this frame is
+    // drawn with (it follows the camera one frame later).
+    const int camera = world(u16(iw + kCameraX), u16(bus->io().raw() + 0x18) & 0x1FF);
     const int width = std::min(u16(iw + kStageWidth), kMapPixels);
     int left = static_cast<int>(info->extra_left);
     left = std::max(left, camera + 240 + extra - width);   // right edge of the stage
@@ -234,6 +276,10 @@ void on_reset() {
 }  // namespace
 
 namespace fsr {
+
+int wide_screen_mismatches(const gba::GbaBus& bus, int bg) {
+    return screen_mismatches(&bus, bg);
+}
 
 gbarecomp::GbaNetplayViewPolicy wide_view_policy() {
     gbarecomp::GbaNetplayViewPolicy policy;

@@ -785,10 +785,36 @@ stage can be drawn from them.
   stage's size. BG0 (the HUD and text) and BG3 draw nothing in the margins.
 * Step 3 ✅ (horizontal): where the camera stops at the stage's edge, the 240
   native columns slide toward that side of the picture instead of leaving an
-  empty margin.
-* Step 5, partly: outside game mode 2 (title, lobby, file and menu screens)
-  the margins are black. What happens inside mode 2 on the stage intro, on
-  text boxes and on transitions between areas has not been looked at.
+  empty margin. The slide follows the BG2 scroll register, which is what the
+  frame is drawn with; the camera variable runs one frame ahead of it while
+  the camera moves. Checked at a stage's left edge: the native picture sits at
+  column 0, at column 1 with the camera at X = 1, and at column 22 in the
+  open, identical pixel for pixel to the 240-wide frame.
+* Vertical edges: the view is no taller than the original, so the camera's
+  own stop at the top and bottom already keeps every row inside the stage,
+  and the margin columns use the same rows. Nothing was changed for them.
+  This follows from the code; the recorded session never reaches a top or
+  bottom edge (camera Y stays between 84 and 748 of 0–848).
+* Step 5 ✅ as far as the recorded session goes. Outside game mode 2 (title,
+  lobby, file and menu screens) the margins are black. Inside mode 2 the byte
+  at `0x03005050` is the stage's own state: 8 entering an area, 9 play, 10
+  leaving an area, 1–7 loading the next one, 11 a fallen player
+  (`FourSwordsLinkProbe --map-log F` writes it per frame with the camera and
+  how many on-screen tiles differ from the buffers):
+  * Play: the screen always shows what the buffers hold. At most 44 of a
+    layer's ~600 tiles differ, for one frame, when the game changes part of
+    the map.
+  * Leaving an area: the fade is a blend, and the margins fade with it.
+  * Loading (91 frames): the screen is black and matches nothing. The margins
+    are drawn only while no more than 150 tiles of either layer differ, so
+    here, and on any screen that uses BG1 and BG2 for something else, the
+    picture is 3:2 with black bars.
+  * Entering an area: the game opens the picture with a window that grows.
+    A margin row appears once the window covers that whole row of the native
+    picture, so the margins open a little after the centre does. They never
+    show the room ahead of the effect.
+  * A fallen player, text boxes: as in play; the HUD keeps its 240-wide
+    placement while a text box is open (step 2).
 * Step 2 ✅: the HUD is BG0, unscrolled: the counter at the top left, the
   hearts at the top centre, the item frame at the top right and the rupees at
   the bottom right, plus one priority-0 sprite, the item icon. The left group
@@ -821,9 +847,10 @@ stage can be drawn from them.
 Also seen working in the stage after the tutorial (a recorded two-player
 session replayed in 16:9 at four points). Not checked: the other stages (the
 buffers hold 1024×1024 pixels at most, and whether every stage uses them the
-same way is unknown), vertical edges, a HUD with more hearts or a longer rupee
-count than a new file has, play with people, and speed on a slow machine
-(each GBA is drawn twice).
+same way is unknown), a top or bottom edge on screen, the start and the end of
+a stage (the recording begins inside the tutorial and ends before clearing a
+stage), a HUD with more hearts or a longer rupee count than a new file has,
+play with people, and speed on a slow machine (each GBA is drawn twice).
 
 The window layout takes the view size: four 284×160 views fill a 1920×1080
 screen (957×539 each).

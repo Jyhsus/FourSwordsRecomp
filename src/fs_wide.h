@@ -9,11 +9,17 @@
 
 #include "multiplayer_view.h"
 
+namespace gba { class GbaBus; }
+
 namespace fsr {
 
 // 160 * 16 / 9, rounded down to an even number of pixels per side.
 inline constexpr unsigned kWideViewWidth = 284;
 
 gbarecomp::GbaNetplayViewPolicy wide_view_policy();
+
+// Diagnostic: how many tiles of the 240x160 screen differ from the stage
+// buffer the wide view reads, for bg 1 or 2 (0 = the screen shows that stage).
+int wide_screen_mismatches(const gba::GbaBus& bus, int bg);
 
 }  // namespace fsr

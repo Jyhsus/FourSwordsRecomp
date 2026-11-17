@@ -833,11 +833,38 @@ capturas, y la fase entera se puede dibujar a partir de ellos.
   márgenes.
 * Paso 3 ✅ (horizontal): donde la cámara se detiene en el borde de la fase,
   las 240 columnas nativas se deslizan hacia ese lado de la imagen en vez de
-  dejar un margen vacío.
-* Paso 5, en parte: fuera del modo de juego 2 (título, lobby, pantallas de
-  partidas y menús) los márgenes quedan en negro. No se ha mirado qué pasa
-  dentro del modo 2 en la presentación de fase, en los cuadros de texto ni en
-  las transiciones entre zonas.
+  dejar un margen vacío. El deslizamiento sigue al registro de scroll de BG2,
+  que es con lo que se dibuja el frame; la variable de la cámara va un frame
+  por delante mientras la cámara se mueve. Comprobado en el borde izquierdo de
+  una fase: la imagen nativa queda en la columna 0, en la 1 con la cámara en
+  X = 1, y en la 22 en campo abierto, idéntica píxel a píxel al frame de 240.
+* Bordes verticales: la vista no es más alta que la original, así que el
+  propio tope de la cámara arriba y abajo ya mantiene todas las filas dentro
+  de la fase, y las columnas de margen usan las mismas filas. No se ha
+  cambiado nada para ellos. Esto se deduce del código; la sesión grabada nunca
+  llega a un borde superior o inferior (la Y de la cámara se queda entre 84 y
+  748 de 0–848).
+* Paso 5 ✅ hasta donde llega la sesión grabada. Fuera del modo de juego 2
+  (título, lobby, pantallas de partidas y menús) los márgenes quedan en negro.
+  Dentro del modo 2, el byte de `0x03005050` es el estado propio de la fase: 8
+  entrar en una zona, 9 juego, 10 salir de una zona, 1–7 cargar la siguiente,
+  11 un jugador caído (`FourSwordsLinkProbe --map-log F` lo escribe en cada
+  frame, con la cámara y cuántos tiles en pantalla difieren de los búferes):
+  * Juego: la pantalla enseña siempre lo que hay en los búferes. Como mucho
+    difieren 44 de los ~600 tiles de una capa, durante un frame, cuando el
+    juego cambia parte del mapa.
+  * Salir de una zona: el fundido es una mezcla, y los márgenes se funden con
+    ella.
+  * Carga (91 frames): la pantalla está en negro y no coincide con nada. Los
+    márgenes solo se dibujan mientras no difieran más de 150 tiles de ninguna
+    de las dos capas, así que aquí, y en cualquier pantalla que use BG1 y BG2
+    para otra cosa, la imagen es 3:2 con bandas negras.
+  * Entrar en una zona: el juego abre la imagen con una ventana que crece. Una
+    fila de margen aparece cuando la ventana cubre toda esa fila de la imagen
+    nativa, así que los márgenes se abren un poco después que el centro. Nunca
+    enseñan la sala antes que el efecto.
+  * Jugador caído y cuadros de texto: como en juego; el HUD conserva su
+    posición de 240 mientras hay un cuadro de texto abierto (paso 2).
 * Paso 2 ✅: el HUD es BG0, sin desplazamiento: el contador arriba a la
   izquierda, los corazones arriba en el centro, el marco del objeto arriba a
   la derecha y las rupias abajo a la derecha, más un sprite de prioridad 0, el
@@ -874,10 +901,11 @@ capturas, y la fase entera se puede dibujar a partir de ellos.
 También se ha visto funcionar en la fase siguiente al tutorial (una sesión
 grabada de dos jugadores, repetida en 16:9 en cuatro puntos). Sin comprobar:
 las demás fases (los búferes contienen 1024×1024 píxeles como mucho, y no se
-sabe si todas las fases los usan igual), los bordes verticales, un HUD con más
-corazones o un contador de rupias más largo que los de una partida nueva, el
-juego con personas y la velocidad en una máquina lenta (cada GBA se dibuja dos
-veces).
+sabe si todas las fases los usan igual), un borde superior o inferior en
+pantalla, el principio y el final de una fase (la grabación empieza dentro del
+tutorial y acaba antes de superar una fase), un HUD con más corazones o un
+contador de rupias más largo que los de una partida nueva, el juego con
+personas y la velocidad en una máquina lenta (cada GBA se dibuja dos veces).
 
 La distribución de la ventana recibe el tamaño de la vista: cuatro vistas de
 284×160 llenan una pantalla de 1920×1080 (957×539 cada una).

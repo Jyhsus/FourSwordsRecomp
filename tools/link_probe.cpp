@@ -4,7 +4,7 @@
 //   FourSwordsLinkProbe --rom R --bios B --out PREFIX --frames N
 //       --save0 A.sav --save1 B.sav [--save2 .. --save3 ..]
 //       [--slot 1-3] [--inputs FILE] [--shots F,F,..] [--trace K]
-//       [--load PREFIX.state] [--wide W [--room 1]] [--dump 1] [--oam-log F]
+//       [--load PREFIX.state] [--wide W [--room 1]] [--dump 1] [--oam-log F] [--map-log F]
 //
 // Every machine runs the same generated code and the same fs_boot hooks as
 // the game executable; --slot boots every machine into that file of its own
@@ -16,6 +16,8 @@
 // at every shot (PREFIX-fF-seatN.mem: EWRAM, IWRAM, VRAM, palette, OAM, IO).
 // A save named "guest" is the one-file save local multiplayer gives a guest.
 // --oam-log F writes PREFIX-oam-seatN.txt from frame F: camera and sprites per frame.
+// --map-log F writes PREFIX-map-seatN.txt from frame F: mode, camera, stage size and how
+// many on-screen tiles differ from the stage buffers the wide view reads.
 // --trace K prints the mode bytes and SIO registers of every machine every K
 // frames. At the end it writes PREFIX.state (resume with --load) and each
 // machine's EEPROM to PREFIX-seatN.sav; the input saves are only read.
@@ -88,6 +90,7 @@ struct Args {
     unsigned frames = 0, trace = 0, wide = 0;
     bool dump = false, room = false;
     unsigned oam_from = 0;   // 0 = no OAM log
+    unsigned map_from = 0;   // 0 = no map log
     int slot = -1;
     std::set<unsigned> shots;
 };
@@ -110,6 +113,7 @@ Args parse(int argc, char** argv) {
         else if (k == "--dump") a.dump = v != "0";
         else if (k == "--room") a.room = v != "0";
         else if (k == "--oam-log") a.oam_from = std::stoul(v);
+        else if (k == "--map-log") a.map_from = std::stoul(v);
         else if (k == "--slot") a.slot = std::stoi(v) - 1;
         else if (k.rfind("--save", 0) == 0 && k.size() == 7 && k[6] >= '0' && k[6] <= '3')
             a.saves[k[6] - '0'] = v;
@@ -223,6 +227,30 @@ int main(int argc, char** argv) {
         for (unsigned frame = 0; frame < a.frames; ++frame) {
             session.run_frame(std::span(inputs[frame].data(), players));
             session.discard_audio_output();
+            if (a.map_from && frame + 1 >= a.map_from) {
+                // One line per machine and frame: mode bytes, camera, stage
+                // size, screen-vs-buffer mismatches (BG1, BG2), DISPCNT, the
+                // BG1/BG2 scroll registers, the blend registers and 16 bytes
+                // around the camera.
+                for (unsigned id = 0; id < players; ++id) {
+                    static std::array<std::ofstream, 4> logs;
+                    if (!logs[id].is_open()) logs[id].open(a.out + "-map-seat" + std::to_string(id) + ".txt");
+                    auto& bus = session.machine(id).bus;
+                    const std::uint8_t* iw = bus.iwram_ptr();
+                    const std::uint8_t* io = bus.io().raw();
+                    const auto w = [](const std::uint8_t* p) { return p[0] | (p[1] << 8); };
+                    logs[id] << frame + 1 << ' ' << int(iw[0x6D10]) << ' ' << int(iw[0x5050]) << ' '
+                             << int(iw[0x0BFC]) << ' ' << w(iw + 0x470) << ' ' << w(iw + 0x472) << ' '
+                             << w(iw + 0x478) << ' ' << w(iw + 0x47A) << ' '
+                             << fsr::wide_screen_mismatches(bus, 1) << ' '
+                             << fsr::wide_screen_mismatches(bus, 2) << std::hex << ' ' << w(io) << ' '
+                             << w(io + 0x14) << ' ' << w(io + 0x16) << ' ' << w(io + 0x18) << ' '
+                             << w(io + 0x1A) << ' ' << w(io + 0x50) << ' ' << w(io + 0x52) << ' '
+                             << w(io + 0x54);
+                    for (unsigned i = 0x460; i < 0x470; i += 2) logs[id] << ' ' << w(iw + i);
+                    logs[id] << std::dec << '\n';
+                }
+            }
             if (a.oam_from && frame + 1 >= a.oam_from) {
                 // One line per machine and frame: camera, then every enabled
                 // sprite as attr0:attr1:attr2 (hex).
