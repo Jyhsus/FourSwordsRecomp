@@ -789,17 +789,29 @@ stage can be drawn from them.
 * Step 5, partly: outside game mode 2 (title, lobby, file and menu screens)
   the margins are black. What happens inside mode 2 on the stage intro, on
   text boxes and on transitions between areas has not been looked at.
-* Step 2 not done: the hearts, rupees and item icon stay where the 240-wide
-  screen puts them, 22 pixels in from each side.
+* Step 2 ✅: the HUD is BG0, unscrolled: the counter at the top left, the
+  hearts at the top centre, the item frame at the top right and the rupees at
+  the bottom right, plus one priority-0 sprite, the item icon. The left group
+  is drawn at the picture's left edge, the right group at its right edge and
+  the hearts stay in the middle; a priority-0 sprite whose centre is on a HUD
+  tile moves with that tile. This happens only while BG0 holds the HUD and
+  nothing else (no window enabled, BG0 unscrolled, tiles only in the HUD's
+  places, no group across a cut). Otherwise, for example while a text box is
+  open, the HUD is drawn where the 240-wide screen puts it, so the box is
+  never cut; the HUD therefore steps 22 pixels inward while a box is open.
+  Seen in the tutorial and the stage after it, with and without text boxes.
 * Step 4 not done: sprites the game places beyond 240 columns show in the
   margins as the hardware would draw them; objects the game has not created
   yet do not, and may pop in. Not checked beyond the tutorial's first room.
 * The session hash of the four-GBA probe run is the same in 3:2 and in 16:9
   (`010a73b5`).
 
-Not checked: any other stage (the buffers hold 1024×1024 pixels at most, and
-whether every stage uses them the same way is unknown), vertical edges, play
-with people, and speed on a slow machine (each GBA is drawn twice).
+Also seen working in the stage after the tutorial (a recorded two-player
+session replayed in 16:9 at four points). Not checked: the other stages (the
+buffers hold 1024×1024 pixels at most, and whether every stage uses them the
+same way is unknown), vertical edges, a HUD with more hearts or a longer rupee
+count than a new file has, play with people, and speed on a slow machine
+(each GBA is drawn twice).
 
 The window layout takes the view size: four 284×160 views fill a 1920×1080
 screen (957×539 each).

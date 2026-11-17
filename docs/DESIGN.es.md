@@ -838,8 +838,19 @@ capturas, y la fase entera se puede dibujar a partir de ellos.
   partidas y menús) los márgenes quedan en negro. No se ha mirado qué pasa
   dentro del modo 2 en la presentación de fase, en los cuadros de texto ni en
   las transiciones entre zonas.
-* Paso 2 sin hacer: los corazones, las rupias y el icono del objeto siguen
-  donde los pone la pantalla de 240, a 22 píxeles de cada lado.
+* Paso 2 ✅: el HUD es BG0, sin desplazamiento: el contador arriba a la
+  izquierda, los corazones arriba en el centro, el marco del objeto arriba a
+  la derecha y las rupias abajo a la derecha, más un sprite de prioridad 0, el
+  icono del objeto. El grupo izquierdo se dibuja en el borde izquierdo de la
+  imagen, el derecho en el borde derecho y los corazones siguen en el centro;
+  un sprite de prioridad 0 cuyo centro cae sobre un tile del HUD se mueve con
+  ese tile. Esto solo ocurre mientras BG0 contiene el HUD y nada más (ninguna
+  ventana activa, BG0 sin desplazamiento, tiles solo en los sitios del HUD,
+  ningún grupo a caballo de un corte). Si no, por ejemplo con un cuadro de
+  texto abierto, el HUD se dibuja donde lo pone la pantalla de 240, así que el
+  cuadro nunca se parte; por eso el HUD se mueve 22 píxeles hacia dentro
+  mientras hay un cuadro abierto. Visto en el tutorial y en la fase siguiente,
+  con y sin cuadros de texto.
 * Paso 4 sin hacer: los sprites que el juego coloca más allá de las 240
   columnas se ven en los márgenes como los dibujaría el hardware; los objetos
   que el juego aún no ha creado no, y pueden aparecer de golpe. No se ha
@@ -847,10 +858,13 @@ capturas, y la fase entera se puede dibujar a partir de ellos.
 * El hash de sesión de la ejecución de la sonda con cuatro GBAs es el mismo en
   3:2 y en 16:9 (`010a73b5`).
 
-Sin comprobar: cualquier otra fase (los búferes contienen 1024×1024 píxeles
-como mucho, y no se sabe si todas las fases los usan igual), los bordes
-verticales, el juego con personas y la velocidad en una máquina lenta (cada
-GBA se dibuja dos veces).
+También se ha visto funcionar en la fase siguiente al tutorial (una sesión
+grabada de dos jugadores, repetida en 16:9 en cuatro puntos). Sin comprobar:
+las demás fases (los búferes contienen 1024×1024 píxeles como mucho, y no se
+sabe si todas las fases los usan igual), los bordes verticales, un HUD con más
+corazones o un contador de rupias más largo que los de una partida nueva, el
+juego con personas y la velocidad en una máquina lenta (cada GBA se dibuja dos
+veces).
 
 La distribución de la ventana recibe el tamaño de la vista: cuatro vistas de
 284×160 llenan una pantalla de 1920×1080 (957×539 cada una).
