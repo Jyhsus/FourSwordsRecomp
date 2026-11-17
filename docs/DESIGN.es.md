@@ -851,10 +851,23 @@ capturas, y la fase entera se puede dibujar a partir de ellos.
   cuadro nunca se parte; por eso el HUD se mueve 22 píxeles hacia dentro
   mientras hay un cuadro abierto. Visto en el tutorial y en la fase siguiente,
   con y sin cuadros de texto.
-* Paso 4 sin hacer: los sprites que el juego coloca más allá de las 240
-  columnas se ven en los márgenes como los dibujaría el hardware; los objetos
-  que el juego aún no ha creado no, y pueden aparecer de golpe. No se ha
-  comprobado más allá de la primera sala del tutorial.
+* Paso 4 ✅ para la vista de 284 columnas: el juego no corta los sprites en
+  el borde de la pantalla. En una sesión grabada de dos jugadores (12.500
+  frames, 620.000 sprites del mundo; `FourSwordsLinkProbe --oam-log F` escribe
+  la cámara y todos los sprites de cada frame) dibuja todo objeto cuyo borde
+  izquierdo esté entre −80 y 303 aproximadamente; ningún sprite tiene una X de
+  9 bits entre 304 y 415. La vista enseña las columnas −22 a 261, así que todo
+  lo que puede enseñar ya está en la OAM. Había una cosa mal: la X de la OAM
+  tiene 9 bits, así que un objeto en 256–303 lo lee el hardware como
+  −256…−209 y faltaba en las últimas 6 columnas del margen derecho (hasta 28
+  cuando la imagen se desliza en el borde de una fase) hasta que bajaba de
+  256. La vista lee ahora las X de 256 a 359 como positivas. Comprobado
+  dibujando los mismos frames grabados con y sin la regla: los únicos píxeles
+  que cambian son esos sprites, en las últimas columnas, y el hash de la
+  sesión es el mismo. Queda abierto: un sprite de 64 píxeles de ancho puede
+  seguir apareciendo tarde por la izquierda cuando la imagen se ha deslizado
+  del todo (necesitaría una X menor que −80), y no se sabe si el juego crea o
+  quita objetos por distancia dentro de este rango.
 * El hash de sesión de la ejecución de la sonda con cuatro GBAs es el mismo en
   3:2 y en 16:9 (`010a73b5`).
 

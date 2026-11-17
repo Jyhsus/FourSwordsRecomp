@@ -4,7 +4,7 @@
 //   FourSwordsLinkProbe --rom R --bios B --out PREFIX --frames N
 //       --save0 A.sav --save1 B.sav [--save2 .. --save3 ..]
 //       [--slot 1-3] [--inputs FILE] [--shots F,F,..] [--trace K]
-//       [--load PREFIX.state] [--wide W [--room 1]] [--dump 1]
+//       [--load PREFIX.state] [--wide W [--room 1]] [--dump 1] [--oam-log F]
 //
 // Every machine runs the same generated code and the same fs_boot hooks as
 // the game executable; --slot boots every machine into that file of its own
@@ -14,6 +14,8 @@
 // --wide W also renders each machine W columns wide through a host-only
 // mirror (PREFIX-fF-seatN-wide.bmp); --dump 1 writes each machine's memory
 // at every shot (PREFIX-fF-seatN.mem: EWRAM, IWRAM, VRAM, palette, OAM, IO).
+// A save named "guest" is the one-file save local multiplayer gives a guest.
+// --oam-log F writes PREFIX-oam-seatN.txt from frame F: camera and sprites per frame.
 // --trace K prints the mode bytes and SIO registers of every machine every K
 // frames. At the end it writes PREFIX.state (resume with --load) and each
 // machine's EEPROM to PREFIX-seatN.sav; the input saves are only read.
@@ -31,6 +33,7 @@
 #include <vector>
 
 #include "fs_boot.h"
+#include "fs_save.h"
 #include "fs_wide.h"
 #include "gba_bios.h"
 #include "multiplayer_session.h"
@@ -84,6 +87,7 @@ struct Args {
     std::vector<std::string> saves;
     unsigned frames = 0, trace = 0, wide = 0;
     bool dump = false, room = false;
+    unsigned oam_from = 0;   // 0 = no OAM log
     int slot = -1;
     std::set<unsigned> shots;
 };
@@ -105,6 +109,7 @@ Args parse(int argc, char** argv) {
         else if (k == "--wide") a.wide = std::stoul(v);
         else if (k == "--dump") a.dump = v != "0";
         else if (k == "--room") a.room = v != "0";
+        else if (k == "--oam-log") a.oam_from = std::stoul(v);
         else if (k == "--slot") a.slot = std::stoi(v) - 1;
         else if (k.rfind("--save", 0) == 0 && k.size() == 7 && k[6] >= '0' && k[6] <= '3')
             a.saves[k[6] - '0'] = v;
@@ -175,6 +180,18 @@ int main(int argc, char** argv) {
             m.bus.set_rom(rom.data(), rom.size());
             m.bus.save().configure_eeprom(kEepromSize);
             fsr::setup_netplay_instance(m);
+            if (a.saves[id] == "guest") {
+                // The one-file first-boot save local multiplayer gives a guest.
+                auto guest = fsr::save::Image::blank(rom, &error);
+                if (!guest || !guest->create(0, "Guest" + std::to_string(id + 1), &error) ||
+                    !guest->set_current_file(0, &error))
+                    throw std::runtime_error("guest save: " + error);
+                const auto bytes = guest->sav_bytes();
+                if (!m.bus.save().load_eeprom_bytes(bytes.data(), bytes.size()))
+                    throw std::runtime_error("guest save does not fit");
+                m.bus.save().clear_dirty();
+                continue;
+            }
             std::ifstream exists(a.saves[id], std::ios::binary);
             if (exists) {
                 const auto bytes = read_file(a.saves[id]);
@@ -206,6 +223,26 @@ int main(int argc, char** argv) {
         for (unsigned frame = 0; frame < a.frames; ++frame) {
             session.run_frame(std::span(inputs[frame].data(), players));
             session.discard_audio_output();
+            if (a.oam_from && frame + 1 >= a.oam_from) {
+                // One line per machine and frame: camera, then every enabled
+                // sprite as attr0:attr1:attr2 (hex).
+                for (unsigned id = 0; id < players; ++id) {
+                    static std::array<std::ofstream, 4> logs;
+                    if (!logs[id].is_open()) logs[id].open(a.out + "-oam-seat" + std::to_string(id) + ".txt");
+                    auto& bus = session.machine(id).bus;
+                    const std::uint8_t* iw = bus.iwram_ptr();
+                    const std::uint8_t* oam = bus.oam_ptr();
+                    logs[id] << frame + 1 << ' ' << int(iw[0x6D10]) << ' ' << (iw[0x470] | (iw[0x471] << 8)) << ' '
+                             << (iw[0x472] | (iw[0x473] << 8)) << std::hex;
+                    for (unsigned i = 0; i < 128; ++i) {
+                        const unsigned a0 = oam[i * 8] | (oam[i * 8 + 1] << 8);
+                        if ((a0 & 0x300) == 0x200) continue;
+                        logs[id] << ' ' << a0 << ':' << (oam[i * 8 + 2] | (oam[i * 8 + 3] << 8)) << ':'
+                                 << (oam[i * 8 + 4] | (oam[i * 8 + 5] << 8));
+                    }
+                    logs[id] << std::dec << '\n';
+                }
+            }
             const unsigned shown = frame + 1;
             if (a.trace && shown % a.trace == 0) {
                 std::printf("frame=%u", shown);

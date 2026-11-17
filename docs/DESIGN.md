@@ -800,9 +800,21 @@ stage can be drawn from them.
   open, the HUD is drawn where the 240-wide screen puts it, so the box is
   never cut; the HUD therefore steps 22 pixels inward while a box is open.
   Seen in the tutorial and the stage after it, with and without text boxes.
-* Step 4 not done: sprites the game places beyond 240 columns show in the
-  margins as the hardware would draw them; objects the game has not created
-  yet do not, and may pop in. Not checked beyond the tutorial's first room.
+* Step 4 ✅ for the 284-column view: the game does not cut sprites off at the
+  screen's edge. Over a recorded two-player session (12,500 frames, 620,000
+  world sprites; `FourSwordsLinkProbe --oam-log F` writes the camera and every
+  sprite per frame) it draws every object whose left edge is between about
+  −80 and 303; no sprite has a 9-bit X between 304 and 415. The view shows
+  columns −22 to 261, so everything it can show is already in OAM. One thing
+  was wrong: OAM X has 9 bits, so an object at 256–303 is read by hardware as
+  −256…−209 and was missing from the last 6 columns of the right margin (up
+  to 28 when the picture slides at a stage's edge) until it came below 256.
+  The view now reads X values 256–359 as positive. Checked by drawing the
+  same recorded frames with and without the rule: the only pixels that change
+  are those sprites, in the last columns, and the session hash is the same.
+  Left open: a sprite 64 pixels wide can still appear late on the left when
+  the picture has slid fully (it would need X below −80), and whether the
+  game creates or removes objects by distance inside this range is not known.
 * The session hash of the four-GBA probe run is the same in 3:2 and in 16:9
   (`010a73b5`).
 

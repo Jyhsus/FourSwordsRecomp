@@ -171,8 +171,25 @@ int hud_obj_x(int /*index*/, std::uint16_t attr0, std::uint16_t attr1, std::uint
     return 1;
 }
 
+// ── World sprites ───────────────────────────────────────────────────────
+// The game draws every object whose left edge is between about -80 and 303
+// on its 240-wide screen (measured over a 12,500-frame two-player session:
+// no sprite has its 9-bit X between 304 and 415). OAM X has 9 bits, so an
+// object at 256..303 is stored as it is and hardware reads it as -256..-209,
+// far off the left: invisible on a GBA, and wrongly missing from a right
+// margin that reaches past column 256. Read those as the positive values the
+// game computed. Everything from 360 up keeps the hardware's meaning.
+constexpr int kObjWrapEnd = 360;
+
+int world_obj_x(int raw_x, int* out_x) {
+    if (raw_x < 256 || raw_x >= kObjWrapEnd) return 0;
+    *out_x = raw_x;
+    return 1;
+}
+
 void on_init(std::uint32_t /*left*/, std::uint32_t /*right*/) {
     gba::g_ws_tilemap_provider = &stage_tile;
+    gba::g_ws_obj_x_provider = &world_obj_x;
     gba::g_ws_bg_x_provider = &hud_bg_x;
     gba::g_ws_bg_x_provider_layers = 1u << 0;
     gba::g_ws_obj_attr_x_provider = &hud_obj_x;
@@ -206,6 +223,7 @@ void on_reset() {
     gba::g_ws_tilemap_provider = nullptr;
     gba::g_ws_bg_x_provider = nullptr;
     gba::g_ws_obj_attr_x_provider = nullptr;
+    gba::g_ws_obj_x_provider = nullptr;
     for (HudState& state : g_hud) {
         if (state.bus == gbarecomp::active_bus()) state = {};
     }
