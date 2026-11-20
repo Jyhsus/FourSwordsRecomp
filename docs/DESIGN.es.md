@@ -745,6 +745,57 @@ padre (la CPU recompilada llega demasiado pronto a `0x0800C576`) más que al
 cable. `src/fs_boot.cpp` fija ahora 5.243 para 2, 3 y 4 GBAs. La causa de
 fondo sigue abierta (sección 9).
 
+**Comprobaciones para la primera versión de prueba (19 nov 2026,**
+`playtest-rc1`**,** docs/PLAYTEST.es.md**).** Sin personas:
+
+* Pruebas unitarias: `fs_save`, `fs_layout` y `fs_pads` (asignación de
+  mandos con mandos virtuales de SDL) pasan.
+* `FourSwordsLinkProbe` con `tests/inputs/` (de
+  `tools/make_local_inputs.py`): guiones de identidad para 2, 3 y 4 GBAs, y
+  sesiones de 24.000 frames con un recorrido aleatorio distinto por jugador.
+  Estas se quedan en el primer piso del tutorial y lo recorren de su borde
+  inferior al superior; la cámara de cada GBA sigue a su propio Link.
+  Sesiones de 24.000 frames con cuatro GBAs en cada una de las otras cuatro
+  fases, forzando la salida de piso con `0x03005050`, recorren sus tres
+  pisos, una derrota del grupo y la vuelta a la selección de fase. Ninguna
+  entrada nativa falta. Una parada (`02016d90 (ARM)`) la causó el recurso de
+  prueba: la salida forzada cayó en la pantalla de selección de fase; sin
+  ella la misma sesión termina.
+* La sesión grabada de dos jugadores del usuario que se detuvo en el frame
+  11.684 (`0x08009A08`, arriba) pasa de ese frame con esta versión.
+* Salir: en el lobby enlazado, B pulsado dos veces por cualquier jugador
+  llega al paso 7 del lobby y al gancho de salida; la sesión vuelve al
+  launcher.
+* Guardado: ninguna sesión automática hizo que el juego escribiera su
+  EEPROM, ni siquiera tras un jefe y la fuente de hadas. La fusión de
+  escrituras reales en el `.sav` sigue sin verse; la prueba con personas la
+  comprueba (PLAYTEST §3 F).
+* Rendimiento del ejecutable real en la máquina de desarrollo:
+  6.000 frames de los guiones de recorrido aleatorio a 1920×1080
+  (presupuesto: 16,74 ms por frame):
+
+  | Jugadores | Vista | Trabajo por frame | Emulación | Frames fuera de plazo | Parones |
+  |---|---|---|---|---|---|
+  | 2 | 3:2 | 6,79 ms | 5,08 ms | 11 | 0 |
+  | 2 | 16:9 | 8,61 ms | 6,88 ms | 11 | 0 |
+  | 3 | 3:2 | 10,06 ms | 8,19 ms | 17 | 0 |
+  | 3 | 16:9 | 12,78 ms | 10,85 ms | 25 | 0 |
+  | 4 | 3:2 | 13,91 ms | 11,88 ms | 683 | 0 |
+  | 4 | 16:9 | 17,89 ms | 15,68 ms | 3.859 | 201 |
+
+  Dibujar cuesta menos de 1 ms y presentar unos 1,3 ms; el resto es
+  emulación, una GBA tras otra en un solo hilo. Con cuatro jugadores en
+  16:9 no se mantiene la velocidad completa en esta máquina (en torno al
+  93 %); con cuatro en 3:2 sí, con algún frame mostrado tarde. Con cuatro
+  jugadores conviene 3:2 (la página Local lo avisa).
+
+* Cada sesión local guarda ahora además `sessions/AAAA-MM-DD_HH-MM-SS/`
+  junto al ejecutable (`session.log`, `inputs.inputs`, `start.sav`,
+  `config.ini`, `keybinds.ini`), que nunca se sobrescribe. El registro
+  empieza con el commit de la compilación y los parches del motor, escribe
+  cada 600 frames el modo, el estado de fase, la fase, el piso y la cámara de
+  cada GBA, y el tiempo de trabajo por frame.
+
 **Pendiente:**
 
 * Ninguna ejecución de 2.800 frames escribe la EEPROM, así que la fusión solo
@@ -972,7 +1023,19 @@ Sin comprobar: un combate contra un jefe y lo que un jefe le haga a la imagen
 jugándola, el principio de una fase tal como lo enseña el juego sin la
 elección forzada, un HUD con más corazones o un contador de rupias más largo
 que los de una partida nueva, el juego con personas y la velocidad en una
-máquina lenta (cada GBA se dibuja dos veces).
+máquina más lenta.
 
 La distribución de la ventana recibe el tamaño de la vista: cuatro vistas de
 284×160 llenan una pantalla de 1920×1080 (957×539 cada una).
+
+**Velocidad (19 nov 2026).** En 16:9 cada GBA se dibujaba dos veces: con su
+propia PPU a 240 columnas y con el espejo a 284. Ahora la PPU propia de la
+GBA conserva su temporización y sus registros pero deja de dibujar
+(`set_rasterization_enabled(false)`, como en el juego en línea); la memoria de
+cuatro GBAs es idéntica byte a byte con y sin ello. Lo que queda es el
+compositor ancho del motor: cuatro GBAs necesitan 12,0 ms por frame con un
+espejo de 240 columnas y 15,2 ms con uno de 284 (sonda, sin ventana; los
+proveedores del juego añaden 0,6 ms). Por eso cuatro jugadores en 16:9 van a
+un 93 % de la velocidad en la máquina de desarrollo, y la página Local lo
+avisa; dos y tres jugadores mantienen la velocidad completa (tabla en la
+sección 10).

@@ -127,10 +127,10 @@ cubre los problemas de herramientas.
 | `src/` | Código propio: punto de entrada, hooks de Four Swords |
 | `tools/` | `regen.ps1` / `regen.sh` — regenerar C++ desde tu ROM |
 | `patches/` | Parches locales de GBARecomp a la espera de upstream (ver su README) |
-| `tests/` | Pruebas del lado del host (`ctest --test-dir build -R fs_save`) |
+| `tests/` | Pruebas del lado del host (`ctest --test-dir build -R "^fs_"`: guardados, distribución de pantallas, mandos) y guiones de entrada para 2-4 GBAs enlazadas |
 | `symbols/` | Nombres de funciones/datos descubiertos con ingeniería inversa |
 | `generated/` | C++ generado localmente (ignorado por git) |
-| `docs/` | Diseño, hoja de ruta, notas de investigación (inglés y español) |
+| `docs/` | Diseño, hoja de ruta, notas de investigación, la guía de pruebas con personas ([PLAYTEST.es.md](docs/PLAYTEST.es.md)) (inglés y español) |
 
 ## Contribuir
 

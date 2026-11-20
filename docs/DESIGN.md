@@ -704,6 +704,52 @@ this points at our timing on the parent's path (the recompiled CPU reaching
 `0x0800C576` too early) rather than at the cable. `src/fs_boot.cpp` now sets
 5,243 for 2, 3 and 4 GBAs. The root cause is still open (section 9).
 
+**Checks for the first playtest build (19 Nov 2026,** `playtest-rc1`**,**
+docs/PLAYTEST.md**).** Without people:
+
+* Unit tests: `fs_save`, `fs_layout` and `fs_pads` (controller assignment
+  with SDL virtual controllers) pass.
+* `FourSwordsLinkProbe` with `tests/inputs/` (from
+  `tools/make_local_inputs.py`): identity scripts for 2, 3 and 4 GBAs, and
+  24,000-frame soak runs with a different random walk per player. The soak
+  runs stay on the tutorial's first floor and cover it from its bottom to
+  its top edge; each GBA's camera follows its own Link. Four-GBA soak runs
+  of 24,000 frames in each of the four other stages, with floor exits forced
+  through `0x03005050`, cover their three floors, a game over and the return
+  to stage select. No missing native entry. One stop
+  (`02016d90 (ARM)`) came from the test device: the forced exit landed on
+  the stage-select screen; without it the same run completes.
+* The user's recorded two-player session that stopped in frame 11,684
+  (`0x08009A08`, above) runs past that frame on this build.
+* Quitting: in the linked lobby, B pressed twice by any player reaches lobby
+  step 7 and the quit hook; the session returns to the launcher.
+* Saving: no automated run made the game write its EEPROM, not even past a
+  boss and the fairy fountain. The merge of real game writes into the `.sav`
+  is still unseen; the playtest checks it (PLAYTEST §3 F).
+* Performance of the real executable on the development machine:
+  6,000 frames of the soak scripts at 1920×1080 (budget 16.74 ms a frame):
+
+  | Players | View | Work per frame | Emulation | Frames over budget | Stalls |
+  |---|---|---|---|---|---|
+  | 2 | 3:2 | 6.79 ms | 5.08 ms | 11 | 0 |
+  | 2 | 16:9 | 8.61 ms | 6.88 ms | 11 | 0 |
+  | 3 | 3:2 | 10.06 ms | 8.19 ms | 17 | 0 |
+  | 3 | 16:9 | 12.78 ms | 10.85 ms | 25 | 0 |
+  | 4 | 3:2 | 13.91 ms | 11.88 ms | 683 | 0 |
+  | 4 | 16:9 | 17.89 ms | 15.68 ms | 3,859 | 201 |
+
+  Drawing takes under 1 ms and presenting about 1.3 ms; emulation is the
+  rest, one GBA after another on one thread. Four players in 16:9 do not
+  keep full speed on this machine (about 93 %); four in 3:2 do, with
+  frames now and then shown late. Four players should use 3:2 (the Local
+  page warns).
+
+* Each local session now also keeps `sessions/YYYY-MM-DD_HH-MM-SS/` next to
+  the executable (`session.log`, `inputs.inputs`, `start.sav`, `config.ini`,
+  `keybinds.ini`), never overwritten. The log starts with the build's commit
+  and engine patches, writes every GBA's mode, stage state, stage, floor and
+  camera every 600 frames, and the work time per frame.
+
 **Still open:**
 
 * No 2,800-frame run writes the EEPROM, so only the unit tests check the
@@ -915,7 +961,17 @@ Not checked: a boss fight itself and whatever a boss does to the picture
 (shakes, flashes, large or rotating sprites), a stage finished by playing it,
 the start of a stage as the game shows it without the forced choice, a HUD
 with more hearts or a longer rupee count than a new file has, play with
-people, and speed on a slow machine (each GBA is drawn twice).
+people, and speed on a slower machine.
 
 The window layout takes the view size: four 284×160 views fill a 1920×1080
 screen (957×539 each).
+
+**Speed (19 Nov 2026).** In 16:9 each GBA was drawn twice: by its own PPU at
+240 columns and by the mirror at 284. The GBA's own PPU now keeps its timing
+and registers but stops drawing (`set_rasterization_enabled(false)`, as in
+online play); the memory of four GBAs is byte-identical with and without it.
+What remains is the engine's wide compositor: four GBAs take 12.0 ms a frame
+with a 240-column mirror and 15.2 ms with a 284-column one (probe, no window;
+the game's providers add 0.6 ms). Four players in 16:9 therefore run at
+about 93 % speed on the development machine, and the Local page warns;
+two and three players keep full speed (table in section 10).
