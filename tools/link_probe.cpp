@@ -257,6 +257,14 @@ int main(int argc, char** argv) {
             }
             session.run_frame(std::span(inputs[frame].data(), players));
             session.discard_audio_output();
+            // The quit hook (src/fs_boot.cpp) ends a launcher session here; the
+            // probe keeps running and only reports it.
+            static bool quit_seen = false;
+            if (!quit_seen && fsr::quit_to_menu()) {
+                quit_seen = true;
+                std::printf("quit to the launcher requested in frame %u\n", frame + 1);
+                std::fflush(stdout);
+            }
             if (a.map_from && frame + 1 >= a.map_from) {
                 // One line per machine and frame: mode bytes, camera, stage
                 // size, screen-vs-buffer mismatches (BG1, BG2), DISPCNT, the
