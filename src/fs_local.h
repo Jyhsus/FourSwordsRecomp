@@ -21,6 +21,7 @@
 #include <string>
 #include <vector>
 
+#include "fs_pads.h"
 #include "fs_save.h"
 
 namespace gbarecomp { struct GbaNetplayLaunch; }
@@ -29,7 +30,6 @@ namespace fsr {
 
 constexpr int kGuestFile = -1;
 constexpr int kLocalMaxPlayers = 4;
-constexpr int kNoPad = -1;
 
 struct LocalPlan {
     int players = 2;                                   // 2-4
@@ -41,21 +41,6 @@ struct LocalPlan {
     bool wide = false;                                 // 16:9 views (fs_wide.h); needs the netplay build
     std::filesystem::path save_path;                   // the shared .sav
 };
-
-// A connected game controller.
-struct LocalPad {
-    int instance = -1;   // SDL joystick instance ID (valid until SDL's controller subsystem quits)
-    int light = -1;      // SDL player index: the number its player light shows, 0-based; -1 unknown
-    std::string name;
-    std::string guid;
-};
-
-// The connected controllers, in the order players count them: by player light
-// (the XInput slot on Xbox pads, the LED on others) and, without one, in the
-// order they were connected. SDL's own device order is not used: it depends
-// on the driver and can run backwards. SDL's game controller subsystem must
-// be initialised.
-std::vector<LocalPad> local_pads();
 
 // 2-4 players, each on a file in use or a guest, no file and no controller
 // twice.

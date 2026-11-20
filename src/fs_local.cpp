@@ -22,6 +22,7 @@
 #include "fs_boot.h"
 #include "fsr_revision.h"
 #include "fs_layout.h"
+#include "fs_pads.h"
 #include "fs_save.h"
 #if defined(FSR_WIDE_VIEW)
 #include "fs_wide.h"
@@ -40,7 +41,6 @@ constexpr auto kFramePeriod = std::chrono::nanoseconds(280896LL * 1000000000LL /
 // The game writes a file as many EEPROM blocks over several frames; a GBA's
 // file is merged once its EEPROM has been idle this long, never mid-write.
 constexpr unsigned kSaveQuietFrames = 60;
-constexpr Sint16 kStickDeadzone = 16000;
 
 LocalPlan g_plan;
 
@@ -167,153 +167,6 @@ save::Image starting_image(const std::optional<save::Image>& shared, int file, i
     return *guest;
 }
 
-std::string device_guid(int device) {
-    char text[40] = "";
-    SDL_JoystickGetGUIDString(SDL_JoystickGetDeviceGUID(device), text, sizeof(text));
-    return text;
-}
-
-// Every player's controller. The plan names controllers by their place in
-// local_pads() when the session starts; from then on a player keeps that
-// device. If it is unplugged the player's place waits for it: the same model
-// of controller coming back (or, failing that, any new one) takes the first
-// free place again. HostWindow's own controller is turned off, so no device
-// can drive two players.
-class Seats {
-public:
-    Seats(const LocalPlan& plan, unsigned players, SessionLog& log) : players_(players), log_(log) {
-        const std::vector<LocalPad> pads = local_pads();
-        log_.line("%zu controller(s) connected", pads.size());
-        for (std::size_t i = 0; i < pads.size(); ++i) {
-            log_.line("  controller %zu: \"%s\" light=%d instance=%d", i + 1, pads[i].name.c_str(),
-                      pads[i].light < 0 ? 0 : pads[i].light + 1, pads[i].instance);
-        }
-        for (unsigned p = 0; p < players_; ++p) {
-            seats_[p].wanted = plan.pad[p] != kNoPad;
-            if (plan.pad[p] >= 0 && plan.pad[p] < static_cast<int>(pads.size())) {
-                open(p, pads[plan.pad[p]].instance);
-            } else if (seats_[p].wanted) {
-                log_.line("player %u: no controller yet", p + 1);
-            }
-        }
-    }
-
-    ~Seats() {
-        for (Seat& seat : seats_) {
-            if (seat.pad) SDL_GameControllerClose(seat.pad);
-        }
-    }
-
-    // Call once per frame. True when a controller came or went.
-    bool poll() {
-        bool changed = false;
-        bool waiting = false;
-        for (unsigned p = 0; p < players_; ++p) {
-            Seat& seat = seats_[p];
-            if (seat.pad && !SDL_GameControllerGetAttached(seat.pad)) {
-                SDL_GameControllerClose(seat.pad);
-                seat.pad = nullptr;
-                seat.instance = -1;
-                seat.lost = true;
-                changed = true;
-                log_.line("player %u: controller disconnected", p + 1);
-            }
-            waiting |= seat.wanted && !seat.pad;
-        }
-        if (!waiting || ++since_scan_ < 30) return changed;
-        since_scan_ = 0;
-        for (int device = 0; device < SDL_NumJoysticks(); ++device) {
-            if (!SDL_IsGameController(device)) continue;
-            const SDL_JoystickID instance = SDL_JoystickGetDeviceInstanceID(device);
-            if (bound(instance)) continue;
-            const std::string guid = device_guid(device);
-            int target = -1;
-            for (unsigned p = 0; p < players_ && target < 0; ++p) {
-                if (seats_[p].wanted && !seats_[p].pad && seats_[p].guid == guid) target = static_cast<int>(p);
-            }
-            for (unsigned p = 0; p < players_ && target < 0; ++p) {
-                if (seats_[p].wanted && !seats_[p].pad) target = static_cast<int>(p);
-            }
-            if (target < 0) break;
-            changed |= open(static_cast<unsigned>(target), instance);
-        }
-        return changed;
-    }
-
-    // A player who had a controller and lost it, or -1.
-    int missing() const {
-        for (unsigned p = 0; p < players_; ++p) {
-            if (seats_[p].lost && !seats_[p].pad) return static_cast<int>(p);
-        }
-        return -1;
-    }
-
-    // Pressed buttons, GBA bit order (pressed = 1): the mapping HostWindow
-    // uses, plus the left stick as the Control Pad.
-    std::uint16_t buttons(unsigned player) const {
-        SDL_GameController* pad = seats_[player].pad;
-        if (!pad) return 0;
-        static constexpr SDL_GameControllerButton kMap[10] = {
-            SDL_CONTROLLER_BUTTON_A, SDL_CONTROLLER_BUTTON_B,
-            SDL_CONTROLLER_BUTTON_BACK, SDL_CONTROLLER_BUTTON_START,
-            SDL_CONTROLLER_BUTTON_DPAD_RIGHT, SDL_CONTROLLER_BUTTON_DPAD_LEFT,
-            SDL_CONTROLLER_BUTTON_DPAD_UP, SDL_CONTROLLER_BUTTON_DPAD_DOWN,
-            SDL_CONTROLLER_BUTTON_RIGHTSHOULDER, SDL_CONTROLLER_BUTTON_LEFTSHOULDER};
-        std::uint16_t out = 0;
-        for (int bit = 0; bit < 10; ++bit) {
-            if (SDL_GameControllerGetButton(pad, kMap[bit])) out |= 1u << bit;
-        }
-        const Sint16 x = SDL_GameControllerGetAxis(pad, SDL_CONTROLLER_AXIS_LEFTX);
-        const Sint16 y = SDL_GameControllerGetAxis(pad, SDL_CONTROLLER_AXIS_LEFTY);
-        if (x > kStickDeadzone) out |= 1u << 4;
-        if (x < -kStickDeadzone) out |= 1u << 5;
-        if (y < -kStickDeadzone) out |= 1u << 6;
-        if (y > kStickDeadzone) out |= 1u << 7;
-        return out;
-    }
-
-private:
-    struct Seat {
-        SDL_GameController* pad = nullptr;
-        SDL_JoystickID instance = -1;
-        std::string guid;
-        bool wanted = false;   // the plan gives this player a controller
-        bool lost = false;     // had one during the session
-    };
-
-    bool bound(SDL_JoystickID instance) const {
-        for (const Seat& seat : seats_) {
-            if (seat.pad && seat.instance == instance) return true;
-        }
-        return false;
-    }
-
-    bool open(unsigned player, SDL_JoystickID instance) {
-        for (int device = 0; device < SDL_NumJoysticks(); ++device) {
-            if (SDL_JoystickGetDeviceInstanceID(device) != instance) continue;
-            SDL_GameController* pad = SDL_GameControllerOpen(device);
-            if (!pad) break;
-            Seat& seat = seats_[player];
-            seat.pad = pad;
-            seat.instance = instance;
-            seat.guid = device_guid(device);
-            const char* name = SDL_GameControllerName(pad);
-            log_.line("player %u: controller \"%s\" (light %d, instance %d)", player + 1,
-                      name ? name : "unknown", SDL_GameControllerGetPlayerIndex(pad) + 1,
-                      static_cast<int>(instance));
-            return true;
-        }
-        log_.line("player %u: cannot open controller instance %d: %s", player + 1,
-                  static_cast<int>(instance), SDL_GetError());
-        return false;
-    }
-
-    std::array<Seat, kLocalMaxPlayers> seats_{};
-    unsigned players_;
-    unsigned since_scan_ = 0;
-    SessionLog& log_;
-};
-
 int run_session(const gbarecomp::GbaNetplayLaunch& launch, const gbarecomp::GbaNetplayBoot& boot,
                 SessionLog& log) {
     using namespace gbarecomp;
@@ -430,9 +283,9 @@ int run_session(const gbarecomp::GbaNetplayLaunch& launch, const gbarecomp::GbaN
     window.set_fullscreen(boot.fullscreen ? 1 : 0);
     window.set_volume(boot.volume);
     window.set_fps_readout(boot.show_fps);
-    window.set_gamepad_enabled(false);   // Seats owns every controller
+    window.set_gamepad_enabled(false);   // PadSeats (fs_pads.h) owns every controller
 
-    Seats seats(plan, players, log);
+    PadSeats seats(plan.pad, players, [&log](const std::string& text) { log.line("%s", text.c_str()); });
     const auto script = scripted_inputs(players);
     log.open_inputs(players);
     std::uint32_t tick = 0;
@@ -601,25 +454,6 @@ int run_local(const gbarecomp::GbaNetplayLaunch& launch, const gbarecomp::GbaNet
 }
 
 }  // namespace
-
-std::vector<LocalPad> local_pads() {
-    std::vector<LocalPad> pads;
-    for (int device = 0; device < SDL_NumJoysticks(); ++device) {
-        if (!SDL_IsGameController(device)) continue;
-        LocalPad pad;
-        pad.instance = static_cast<int>(SDL_JoystickGetDeviceInstanceID(device));
-        pad.light = SDL_JoystickGetDevicePlayerIndex(device);
-        const char* name = SDL_GameControllerNameForIndex(device);
-        pad.name = name ? name : "Controller";
-        pad.guid = device_guid(device);
-        pads.push_back(std::move(pad));
-    }
-    std::stable_sort(pads.begin(), pads.end(), [](const LocalPad& a, const LocalPad& b) {
-        const int la = a.light < 0 ? INT_MAX : a.light, lb = b.light < 0 ? INT_MAX : b.light;
-        return la != lb ? la < lb : a.instance < b.instance;
-    });
-    return pads;
-}
 
 bool valid_local_plan(const LocalPlan& plan, const std::array<save::Slot, save::kSlotCount>& slots) {
     if (plan.players < 2 || plan.players > kLocalMaxPlayers) return false;

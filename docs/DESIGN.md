@@ -544,9 +544,14 @@ controller connected). The fix does not depend on it:
 * `HostWindow`'s own controller is turned off (`set_gamepad_enabled(false)`,
   local patch 0003), so no device can drive two players.
 * A player keeps their device for the session. If it is unplugged the game
-  pauses and the title bar names the player; the same model of controller
-  coming back (or else any new one) takes the free place. The pause key
-  overrides the wait.
+  pauses and the title bar names the player. A controller plugged in later
+  takes a waiting place: first the one whose controller had the same player
+  light, then one whose controller was the same model, then the first waiting
+  place. A controller that was connected when the session started but given
+  to nobody is never handed to anyone (someone else may be holding it). The
+  pause key overrides the wait. `src/fs_pads.cpp`, checked with SDL virtual
+  controllers by `tests/fs_pads_test.cpp` (19 Nov 2026: two of these rules
+  were added after review; without them the test fails).
 * The keyboard belongs to one player (player 1 by default, or nobody), on top
   of that player's controller. The left stick also works as the Control Pad.
 * Files and guests are indexed by player; choosing controllers never touches

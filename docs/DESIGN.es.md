@@ -574,9 +574,14 @@ desarrollo no tenía ningún mando conectado). El arreglo no depende de ella:
 * El mando propio de `HostWindow` se apaga (`set_gamepad_enabled(false)`,
   parche local 0003), así que ningún dispositivo puede mover a dos jugadores.
 * Cada jugador conserva su dispositivo toda la sesión. Si se desconecta, el
-  juego se pausa y la barra de título nombra al jugador; el mismo modelo de
-  mando al volver (o, si no, cualquier mando nuevo) ocupa el puesto libre. La
-  tecla de pausa anula la espera.
+  juego se pausa y la barra de título nombra al jugador. Un mando que se
+  conecte después ocupa un puesto en espera: primero el del mando que tenía la
+  misma luz de jugador, luego el de un mando del mismo modelo y, si no, el
+  primer puesto en espera. Un mando que ya estaba conectado al empezar la
+  sesión y no era de nadie nunca se entrega a nadie (puede tenerlo otra
+  persona). La tecla de pausa anula la espera. `src/fs_pads.cpp`, comprobado
+  con mandos virtuales de SDL por `tests/fs_pads_test.cpp` (19 nov 2026: dos
+  de estas reglas se añadieron tras revisarlo; sin ellas la prueba falla).
 * El teclado es de un jugador (el 1 por defecto, o de nadie), además de su
   mando. El stick izquierdo también funciona como cruceta.
 * Las partidas y los invitados van por número de jugador; elegir mandos nunca
