@@ -278,7 +278,8 @@ int main(int argc, char** argv) {
                              << w(io + 0x1A) << ' ' << w(io + 0x50) << ' ' << w(io + 0x52) << ' '
                              << w(io + 0x54);
                     for (unsigned i = 0x460; i < 0x470; i += 2) logs[id] << ' ' << w(iw + i);
-                    logs[id] << std::dec << '\n';
+                    // Last two fields: stage (0x03006C87) and floor (0x03006C84).
+                    logs[id] << std::dec << ' ' << int(iw[0x6C87]) << ' ' << int(iw[0x6C84]) << '\n';
                 }
             }
             if (a.oam_from && frame + 1 >= a.oam_from) {

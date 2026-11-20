@@ -723,8 +723,8 @@ this points at our timing on the parent's path (the recompiled CPU reaching
 Goal: a 16:9 view that shows more of the world, with the 3:2 picture kept as
 an option. Not a stretched, cropped or letterboxed picture. **Experimental**:
 local multiplayer has it as an option (`--local-view 16:9`, or the checkbox on
-the Local page), checked in the tutorial and at the start of the four other
-stages; 3:2 stays the default.
+the Local page), checked in the tutorial and on the three floors of the four
+other stages, boss rooms included; 3:2 stays the default.
 
 **What the engine gives.** The PPU can render extra columns
 (`set_view_margins`), games supply what goes in them through providers
@@ -878,11 +878,39 @@ In each of the four, with both players walked around for 2,650 frames:
   picture at column 44, no empty column);
 * the HUD is at the picture's edges.
 
-Not checked: later floors of those stages and their bosses, a top edge on
-screen, the start of a stage as the game shows it without the forced choice
-and the end of a stage, a HUD with more hearts or a longer rupee count than a
-new file has, play with people, and speed on a slow machine (each GBA is
-drawn twice).
+**Later floors and bosses (16 Nov 2026).** Writing 10 (leaving an area) to the
+stage's state byte `0x03005050` during play makes the game leave the floor
+and load the next one by its own path, as it does when the players reach the
+exit: the floor byte goes up and the next floor is generated and loaded. Done
+at frames 2,600, 3,500 and 4,400 in each of the four stages (again a test
+device: the floor is not played). Each stage has three floors, the third with
+its boss; `FourSwordsLinkProbe --map-log` now also writes the stage and the
+floor.
+
+* On floors 2 and 3 of every stage, in play, the on-screen tiles match the
+  buffers on every frame, and the native picture inside the wide one is
+  identical to the 240-wide frame at every capture.
+* Boss rooms: the forest boss and the palace's boss room, with its text box
+  and with the HUD hidden during the scene, draw their real room in the
+  margins. No boss was fought: the captures are of the first seconds in the
+  room.
+* A top edge is on screen on the second floor of the cave and of the forest
+  (camera Y = 24, X = 0: native picture at column 0).
+* Loading a floor: the screen is black and the margins with it, as between
+  the tutorial's floors.
+* After the forest's boss floor the game enters mode 4, a fairy fountain. Its
+  room is exactly one screen wide (camera X = 32, nothing but a plain fill
+  beyond), so there is nothing real to show at the sides: it stays 3:2 with
+  black bars, like every mode other than 2. Trying it wide gave two flat
+  green bands with the trees cut at the old edge, so it was left as it was.
+* Forcing the exit a third time, on the boss floor, only moved on in the
+  forest; in the other three the game stays in the leaving state.
+
+Not checked: a boss fight itself and whatever a boss does to the picture
+(shakes, flashes, large or rotating sprites), a stage finished by playing it,
+the start of a stage as the game shows it without the forced choice, a HUD
+with more hearts or a longer rupee count than a new file has, play with
+people, and speed on a slow machine (each GBA is drawn twice).
 
 The window layout takes the view size: four 284×160 views fill a 1920×1080
 screen (957×539 each).

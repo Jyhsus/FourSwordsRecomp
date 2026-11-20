@@ -766,8 +766,8 @@ fondo sigue abierta (sección 9).
 Objetivo: una vista 16:9 que enseñe más mundo, conservando la imagen 3:2 como
 opción. No una imagen estirada, recortada o con bandas. **Experimental**: el
 multijugador local la ofrece como opción (`--local-view 16:9`, o la casilla de
-la página Local), comprobada en el tutorial y al principio de las otras cuatro
-fases; 3:2 sigue siendo el
+la página Local), comprobada en el tutorial y en los tres pisos de las otras
+cuatro fases, salas de jefe incluidas; 3:2 sigue siendo el
 valor por defecto.
 
 **Lo que da el motor.** La PPU puede dibujar columnas extra
@@ -933,11 +933,41 @@ En cada una de las cuatro, moviendo a los dos jugadores durante 2.650 frames:
   nativa en la columna 44, sin columna vacía);
 * el HUD queda en los bordes de la imagen.
 
-Sin comprobar: los pisos posteriores de esas fases y sus jefes, un borde
-superior en pantalla, el principio de una fase tal como lo enseña el juego sin
-la elección forzada y el final de una fase, un HUD con más corazones o un
-contador de rupias más largo que los de una partida nueva, el juego con
-personas y la velocidad en una máquina lenta (cada GBA se dibuja dos veces).
+**Pisos posteriores y jefes (16 nov 2026).** Escribir 10 (salir de una zona)
+en el byte de estado de la fase, `0x03005050`, durante el juego hace que el
+juego salga del piso y cargue el siguiente por su propio camino, igual que
+cuando los jugadores llegan a la salida: el byte de piso sube y el piso
+siguiente se genera y se carga. Hecho en los frames 2.600, 3.500 y 4.400 en
+cada una de las cuatro fases (de nuevo un recurso de prueba: el piso no se
+juega). Cada fase tiene tres pisos, el tercero con su jefe;
+`FourSwordsLinkProbe --map-log` escribe ahora también la fase y el piso.
+
+* En los pisos 2 y 3 de todas las fases, en juego, los tiles en pantalla
+  coinciden con los búferes en todos los frames, y la imagen nativa dentro de
+  la ancha es idéntica al frame de 240 en todas las capturas.
+* Salas de jefe: el jefe del bosque y la sala del jefe del palacio, con su
+  cuadro de texto y con el HUD oculto durante la escena, dibujan su sala real
+  en los márgenes. No se ha luchado contra ningún jefe: las capturas son de
+  los primeros segundos en la sala.
+* Hay un borde superior en pantalla en el segundo piso de la cueva y del
+  bosque (cámara Y = 24, X = 0: imagen nativa en la columna 0).
+* Carga de un piso: la pantalla está en negro y los márgenes con ella, como
+  entre los pisos del tutorial.
+* Tras el piso del jefe del bosque el juego entra en el modo 4, una fuente de
+  hadas. Su sala mide exactamente una pantalla de ancho (cámara X = 32, y más
+  allá solo hay un relleno liso), así que no hay nada real que enseñar a los
+  lados: se queda en 3:2 con bandas negras, como todos los modos distintos del
+  2. Al probarla en ancho salían dos bandas verdes lisas con los árboles
+  cortados en el borde antiguo, así que se dejó como estaba.
+* Forzar la salida por tercera vez, en el piso del jefe, solo avanzó en el
+  bosque; en las otras tres el juego se queda en el estado de salida.
+
+Sin comprobar: un combate contra un jefe y lo que un jefe le haga a la imagen
+(temblores, destellos, sprites grandes o que giran), una fase terminada
+jugándola, el principio de una fase tal como lo enseña el juego sin la
+elección forzada, un HUD con más corazones o un contador de rupias más largo
+que los de una partida nueva, el juego con personas y la velocidad en una
+máquina lenta (cada GBA se dibuja dos veces).
 
 La distribución de la ventana recibe el tamaño de la vista: cuatro vistas de
 284×160 llenan una pantalla de 1920×1080 (957×539 cada una).
