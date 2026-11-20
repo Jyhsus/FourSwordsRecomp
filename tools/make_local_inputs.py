@@ -12,7 +12,7 @@ in the lobby, pick the only stage a new file has, start it). The game is in
 the tutorial from about frame 2300. Then:
 
   identity  one player at a time walks in their own direction, everyone else
-            waits: P1 right, P2 left, P3 up, P4 down, 90 frames each, from
+            waits: P1 right, P2 left, P3 up, P4 up, 90 frames each, from
             frame 2700, 300 frames apart. Afterwards each Link stands apart
             from the group in its own direction, so a screenshot shows which
             input moved which Link and which view follows it.
@@ -44,7 +44,7 @@ def boot(players):
 
 def identity(players):
     rows = boot(players)
-    walk = [RIGHT, LEFT, UP, DOWN]
+    walk = [RIGHT, LEFT, UP, UP]   # P4 starts on a row of blocks: down would not move it
     for p in range(players):
         start = 2700 + 300 * p
         keys = [0] * players

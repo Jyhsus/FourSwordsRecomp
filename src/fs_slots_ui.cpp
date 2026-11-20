@@ -406,6 +406,12 @@ int Screen::multiplayer_popup() {
         ImGui::Checkbox("16:9 view (experimental)", &local_.wide);
         ImGui::SameLine();
         ImGui::TextDisabled("more of the stage to each side; off = the original 3:2");
+        // Measured 19 Nov 2026 (docs/DESIGN.md section 11): four GBAs in 16:9
+        // need about as much time per frame as the GBA gives.
+        if (local_.wide && local_.players == 4) {
+            ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.4f, 1.0f),
+                               "With 4 players 16:9 may run below full speed; use 3:2 if the game slows down.");
+        }
         ImGui::TextDisabled("Each file is saved back on its own; a guest's progress is not kept.");
         ImGui::Separator();
         // Every file is played by one GBA at most (its blocks are merged back).

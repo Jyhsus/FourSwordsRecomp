@@ -9,6 +9,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <ctime>
 #include <fstream>
 #include <iomanip>
 #include <optional>
@@ -52,48 +53,84 @@ LocalPlan g_plan;
 // Each session overwrites the previous one's files.
 class SessionLog {
 public:
+    // Every session writes its evidence twice: fsr_local_last.* next to the
+    // executable (overwritten by the next session) and a folder of its own,
+    // sessions/YYYY-MM-DD_HH-MM-SS/, that is never overwritten:
+    //   session.log, inputs.inputs, start.sav, config.ini, keybinds.ini
     explicit SessionLog(const std::filesystem::path& directory) : directory_(directory) {
-        log_.open(directory / "fsr_local_last.log", std::ios::trunc);
+        log_[0].open(directory / "fsr_local_last.log", std::ios::trunc);
+        const std::time_t now = std::time(nullptr);
+        char stamp[32] = "session";
+        if (const std::tm* local = std::localtime(&now)) {
+            std::strftime(stamp, sizeof(stamp), "%Y-%m-%d_%H-%M-%S", local);
+        }
+        std::error_code ec;
+        folder_ = directory / "sessions" / stamp;
+        for (int n = 2; std::filesystem::exists(folder_, ec); ++n) {
+            folder_ = directory / "sessions" / (std::string(stamp) + "_" + std::to_string(n));
+        }
+        if (std::filesystem::create_directories(folder_, ec)) {
+            log_[1].open(folder_ / "session.log", std::ios::trunc);
+            for (const char* name : {"config.ini", "keybinds.ini"}) {
+                std::filesystem::copy_file(directory / name, folder_ / name,
+                                           std::filesystem::copy_options::overwrite_existing, ec);
+            }
+        } else {
+            folder_.clear();
+        }
     }
 
+    const std::filesystem::path& folder() const { return folder_; }
+
     void line(const char* format, ...) {
-        char text[512];
+        char text[1024];
         va_list args;
         va_start(args, format);
         std::vsnprintf(text, sizeof(text), format, args);
         va_end(args);
         std::fprintf(stderr, "[fsr] local: %s\n", text);
         std::fflush(stderr);
-        if (log_) log_ << text << std::endl;
+        for (auto& log : log_) {
+            if (log) log << text << std::endl;
+        }
     }
 
     void keep_save(const std::filesystem::path& save) {
         std::error_code ec;
         std::filesystem::copy_file(save, directory_ / "fsr_local_last.sav",
                                    std::filesystem::copy_options::overwrite_existing, ec);
+        if (!folder_.empty()) {
+            std::filesystem::copy_file(save, folder_ / "start.sav",
+                                       std::filesystem::copy_options::overwrite_existing, ec);
+        }
     }
 
     void open_inputs(unsigned players) {
-        inputs_.open(directory_ / "fsr_local_last.inputs", std::ios::trunc);
-        inputs_ << "# FourSwordsRecomp local multiplayer, " << players
-                << " players: frame, then each player's buttons (pressed = 1).\n"
-                << "# Replay: FSR_LOCAL_INPUTS=<this file> with the same --local list and\n"
-                << "# --save-path <a copy of fsr_local_last.sav>.\n";
+        inputs_[0].open(directory_ / "fsr_local_last.inputs", std::ios::trunc);
+        if (!folder_.empty()) inputs_[1].open(folder_ / "inputs.inputs", std::ios::trunc);
+        for (auto& inputs : inputs_) {
+            if (!inputs) continue;
+            inputs << "# FourSwordsRecomp local multiplayer, " << players
+                   << " players: frame, then each player's buttons (pressed = 1).\n"
+                   << "# Replay: FSR_LOCAL_INPUTS=<this file> with the same --local list and\n"
+                   << "# --save-path <a copy of the session's start save>.\n";
+        }
     }
 
     void inputs(std::uint32_t tick, std::span<const std::uint16_t> buttons) {
-        if (!inputs_ || (tick && std::equal(buttons.begin(), buttons.end(), last_.begin()))) return;
-        inputs_ << tick;
-        for (std::size_t i = 0; i < buttons.size(); ++i) {
-            inputs_ << ' ' << buttons[i];
-            last_[i] = buttons[i];
+        if (tick && std::equal(buttons.begin(), buttons.end(), last_.begin())) return;
+        for (std::size_t i = 0; i < buttons.size(); ++i) last_[i] = buttons[i];
+        for (auto& inputs : inputs_) {
+            if (!inputs) continue;
+            inputs << tick;
+            for (std::size_t i = 0; i < buttons.size(); ++i) inputs << ' ' << buttons[i];
+            inputs << std::endl;
         }
-        inputs_ << std::endl;
     }
 
 private:
-    std::filesystem::path directory_;
-    std::ofstream log_, inputs_;
+    std::filesystem::path directory_, folder_;
+    std::array<std::ofstream, 2> log_, inputs_;
     std::array<std::uint16_t, kLocalMaxPlayers> last_{};
 };
 
@@ -180,6 +217,7 @@ int run_session(const gbarecomp::GbaNetplayLaunch& launch, const gbarecomp::GbaN
             files += (id ? "," : "") +
                      (plan.file[id] == kGuestFile ? std::string("guest") : std::to_string(plan.file[id] + 1));
         }
+        if (!log.folder().empty()) log.line("evidence folder: %s", log.folder().string().c_str());
         log.line("FourSwordsRecomp v%s, commit %s%s, engine %s, patches %s", FSR_VERSION, FSR_GIT_COMMIT,
                  FSR_GIT_DIRTY ? " (with local changes)" : "", FSR_ENGINE_COMMIT, FSR_ENGINE_PATCHES);
         log.line("%u players, files %s, keyboard: %s, view %s, scale %d (%s), fullscreen %d, "
@@ -256,6 +294,11 @@ int run_session(const gbarecomp::GbaNetplayLaunch& launch, const gbarecomp::GbaN
             mirrors.push_back(std::make_unique<GbaNetplayPresentation>(wide_view_policy()));
             mirrors.back()->request_width(kWideViewWidth);
             session.machine(id).ppu.set_presentation_observer(mirrors.back().get());
+            // Only the mirror's picture is shown. The GBA's own PPU keeps its
+            // timing and every register the game can read, and stops drawing
+            // a 240-wide picture nobody sees: with four GBAs that drawing was
+            // what kept 16:9 from running at full speed (DESIGN section 11).
+            session.machine(id).ppu.set_rasterization_enabled(false);
         }
         log.line("view: 16:9, %d columns", view_w);
     }
@@ -299,8 +342,34 @@ int run_session(const gbarecomp::GbaNetplayLaunch& launch, const gbarecomp::GbaN
     std::array<unsigned, kLocalMaxPlayers> quiet{};
     bool paused = false, waiting_for_pad = false;
     auto next = Clock::now();
+    // Work per loop (emulating every GBA, drawing and presenting), against
+    // the GBA's 16.74 ms frame: logged every 600 frames and at the end, so a
+    // session shows whether this machine kept up (docs/PLAYTEST.md).
+    // Split into emulation (every GBA), drawing (scaling the views) and
+    // presenting (upload and show), so a slow session shows which part.
+    struct Timing {
+        std::uint32_t frames = 0, late = 0, stalls = 0;
+        double total_ms = 0, worst_ms = 0, emu_ms = 0, draw_ms = 0, present_ms = 0;
+        void add(double ms, double emu, double draw, double present) {
+            ++frames; total_ms += ms; worst_ms = std::max(worst_ms, ms);
+            emu_ms += emu; draw_ms += draw; present_ms += present;
+            late += ms > 16.743;
+        }
+    } timing, all_timing;
+    double emu_ms = 0, draw_ms = 0, present_ms = 0;
+    const auto since = [](Clock::time_point start) {
+        return std::chrono::duration<double, std::milli>(Clock::now() - start).count();
+    };
+    const auto report = [&log](const char* what, const Timing& t) {
+        if (!t.frames) return;
+        log.line("%s: %u frames, work %.2f ms average (emulation %.2f, drawing %.2f, presenting %.2f), "
+                 "%.2f ms worst, %u over 16.74 ms, %u stalls",
+                 what, t.frames, t.total_ms / t.frames, t.emu_ms / t.frames, t.draw_ms / t.frames,
+                 t.present_ms / t.frames, t.worst_ms, t.late, t.stalls);
+    };
 
     for (;;) {
+        const auto work_start = Clock::now();
         const auto events = window.pump();
         if (events.quit || events.terminating || quit_to_menu()) break;
         if (events.toggle_pause) {
@@ -340,6 +409,7 @@ int run_session(const gbarecomp::GbaNetplayLaunch& launch, const gbarecomp::GbaN
                 for (unsigned id = 0; id < players; ++id) buttons[id] |= row[id];
             }
             log.inputs(tick, std::span<const std::uint16_t>(buttons.data(), players));
+            const auto emu_start = Clock::now();
             try {
                 session.run_frame(std::span(buttons.data(), players));
             } catch (...) {
@@ -350,7 +420,23 @@ int run_session(const gbarecomp::GbaNetplayLaunch& launch, const gbarecomp::GbaN
                 }
                 throw;
             }
+            emu_ms = since(emu_start);
             ++tick;
+            if (tick % 600 == 0) {
+                // Mode, stage state, stage, floor and camera of every GBA:
+                // where each player was if something goes wrong later.
+                std::string where = "frame " + std::to_string(tick) + ":";
+                for (unsigned id = 0; id < players; ++id) {
+                    const std::uint8_t* iw = session.machine(id).bus.iwram_ptr();
+                    char part[96];
+                    std::snprintf(part, sizeof(part), " P%u mode=%u state=%u stage=%u floor=%u camera=%u,%u;",
+                                  id + 1, iw[0x6D10], iw[0x5050], iw[0x6C87], iw[0x6C84],
+                                  iw[0x470] | (iw[0x471] << 8), iw[0x472] | (iw[0x473] << 8));
+                    where += part;
+                }
+                where.pop_back();
+                log.line("%s", where.c_str());
+            }
 
             auto& sound = session.machine(0).bus.audio();
             while (const std::size_t n = sound.drain_samples(audio.data(), audio.size())) {
@@ -390,6 +476,7 @@ int run_session(const gbarecomp::GbaNetplayLaunch& launch, const gbarecomp::GbaN
             }
             window.set_surface_size(canvas_w, canvas_h);
             const std::size_t stride = static_cast<std::size_t>(canvas_w) * 3;
+            const auto draw_start = Clock::now();
             for (unsigned id = 0; id < players; ++id) {
                 const ViewRect& view = layout.view[id];
                 if (view.w < 1 || view.h < 1) continue;
@@ -405,7 +492,10 @@ int run_session(const gbarecomp::GbaNetplayLaunch& launch, const gbarecomp::GbaN
                 scaler.blit(pixels, canvas.data() + view.y * stride + static_cast<std::size_t>(view.x) * 3,
                             stride);
             }
+            draw_ms = since(draw_start);
+            const auto present_start = Clock::now();
             window.present(canvas.data());
+            present_ms = since(present_start);
         }
         if (boot.finish_tick && tick >= boot.finish_tick) {
             if (const char* dump = std::getenv("FSR_LOCAL_DUMP"); dump && *dump && !canvas.empty()) {
@@ -414,10 +504,21 @@ int run_session(const gbarecomp::GbaNetplayLaunch& launch, const gbarecomp::GbaN
             break;
         }
 
+        if (!paused) {
+            const double ms = std::chrono::duration<double, std::milli>(Clock::now() - work_start).count();
+            timing.add(ms, emu_ms, draw_ms, present_ms);
+            all_timing.add(ms, emu_ms, draw_ms, present_ms);
+            if (timing.frames == 600) {
+                report(("frames " + std::to_string(tick - 599) + "-" + std::to_string(tick)).c_str(), timing);
+                timing = {};
+            }
+        }
         next += kFramePeriod;
         const auto now = Clock::now();
         if (now > next + kFramePeriod * 4) {
             next = now;  // a long stall: drop the backlog
+            ++timing.stalls;
+            ++all_timing.stalls;
         } else {
             std::this_thread::sleep_until(next - std::chrono::milliseconds(1));
             while (Clock::now() < next) std::this_thread::yield();
@@ -431,6 +532,7 @@ int run_session(const gbarecomp::GbaNetplayLaunch& launch, const gbarecomp::GbaN
         }
     }
     merge(unsaved);
+    report("whole session", all_timing);
     log.line("session ended at frame %u", tick);
     return 0;
 }

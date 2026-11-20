@@ -4,7 +4,7 @@
 //   FourSwordsLinkProbe --rom R --bios B --out PREFIX --frames N
 //       --save0 A.sav --save1 B.sav [--save2 .. --save3 ..]
 //       [--slot 1-3] [--inputs FILE] [--shots F,F,..] [--trace K]
-//       [--load PREFIX.state] [--wide W [--room 1]] [--dump 1] [--oam-log F] [--map-log F] [--poke F:ADDR:BYTE,...]
+//       [--load PREFIX.state] [--wide W [--room 1] [--no-raster 1]] [--dump 1] [--oam-log F] [--map-log F] [--poke F:ADDR:BYTE,...]
 //
 // Every machine runs the same generated code and the same fs_boot hooks as
 // the game executable; --slot boots every machine into that file of its own
@@ -89,7 +89,7 @@ struct Args {
     std::string rom, bios, out, inputs, load;
     std::vector<std::string> saves;
     unsigned frames = 0, trace = 0, wide = 0;
-    bool dump = false, room = false;
+    bool dump = false, room = false, no_raster = false;
     unsigned oam_from = 0;   // 0 = no OAM log
     unsigned map_from = 0;   // 0 = no map log
     std::vector<std::array<std::uint32_t, 3>> pokes;   // frame, address, byte
@@ -114,6 +114,7 @@ Args parse(int argc, char** argv) {
         else if (k == "--wide") a.wide = std::stoul(v);
         else if (k == "--dump") a.dump = v != "0";
         else if (k == "--room") a.room = v != "0";
+        else if (k == "--no-raster") a.no_raster = v != "0";
         else if (k == "--oam-log") a.oam_from = std::stoul(v);
         else if (k == "--map-log") a.map_from = std::stoul(v);
         else if (k == "--poke") {
@@ -235,6 +236,8 @@ int main(int argc, char** argv) {
                 wide.push_back(std::make_unique<GbaNetplayPresentation>(policy));
                 wide.back()->request_width(a.wide);
                 session.machine(id).ppu.set_presentation_observer(wide.back().get());
+                // --no-raster 1: only the mirror draws, as in the game's 16:9 view.
+                if (a.no_raster) session.machine(id).ppu.set_rasterization_enabled(false);
             }
         }
         if (!a.load.empty() && !session.load_state(read_file(a.load), &error))
