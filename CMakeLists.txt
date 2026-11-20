@@ -123,6 +123,19 @@ else()
         "-Wl,--end-group")
 endif()
 
+# The build's identity (commit, local changes, engine patches), regenerated
+# on every build so the executable and its session logs always name the
+# source they came from (cmake/fsr_revision.cmake, docs/PLAYTEST.md).
+set(FSR_REVISION_HEADER "${CMAKE_CURRENT_BINARY_DIR}/fsr_generated/fsr_revision.h")
+add_custom_target(fsr_revision ALL
+    COMMAND ${CMAKE_COMMAND} -DSRC=${CMAKE_CURRENT_SOURCE_DIR}
+        -DOUT=${FSR_REVISION_HEADER}
+        -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/fsr_revision.cmake
+    BYPRODUCTS ${FSR_REVISION_HEADER}
+    COMMENT "FourSwordsRecomp revision")
+add_dependencies(FourSwordsRecomp fsr_revision)
+target_include_directories(FourSwordsRecomp PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/fsr_generated")
+
 target_compile_definitions(FourSwordsRecomp PRIVATE
     FSR_VERSION="${PROJECT_VERSION}"
     GBARECOMP_DEFAULT_DEBUG_PORT=19890

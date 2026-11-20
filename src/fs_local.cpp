@@ -20,6 +20,7 @@
 #include <vector>
 
 #include "fs_boot.h"
+#include "fsr_revision.h"
 #include "fs_layout.h"
 #include "fs_save.h"
 #if defined(FSR_WIDE_VIEW)
@@ -326,12 +327,14 @@ int run_session(const gbarecomp::GbaNetplayLaunch& launch, const gbarecomp::GbaN
             files += (id ? "," : "") +
                      (plan.file[id] == kGuestFile ? std::string("guest") : std::to_string(plan.file[id] + 1));
         }
-        log.line("FourSwordsRecomp v%s, %u players, files %s, keyboard: %s, scale %d (%s), fullscreen %d, "
+        log.line("FourSwordsRecomp v%s, commit %s%s, engine %s, patches %s", FSR_VERSION, FSR_GIT_COMMIT,
+                 FSR_GIT_DIRTY ? " (with local changes)" : "", FSR_ENGINE_COMMIT, FSR_ENGINE_PATCHES);
+        log.line("%u players, files %s, keyboard: %s, view %s, scale %d (%s), fullscreen %d, "
                  "screen \"%s\", frames %u, save %s",
-                 FSR_VERSION, players, files.c_str(),
+                 players, files.c_str(),
                  plan.keyboard >= 0 ? ("player " + std::to_string(plan.keyboard + 1)).c_str() : "nobody",
-                 boot.scale, plan.integer_scale ? "integer" : "fit", boot.fullscreen, boot.screen.c_str(),
-                 boot.finish_tick, plan.save_path.string().c_str());
+                 plan.wide ? "16:9" : "3:2", boot.scale, plan.integer_scale ? "integer" : "fit",
+                 boot.fullscreen, boot.screen.c_str(), boot.finish_tick, plan.save_path.string().c_str());
     }
 
     std::optional<save::Image> shared;

@@ -21,6 +21,7 @@
 #include <string>
 #include <vector>
 
+#include "fsr_revision.h"
 #include "runtime.h"
 #include "fs_boot.h"
 #include "fs_save.h"
@@ -150,7 +151,9 @@ bool interactive(const std::vector<std::string>& args) {
 int main(int argc, char** argv) {
     for (int i = 1; i < argc; ++i) {
         if (std::strcmp(argv[i], "--version") == 0) {
-            std::printf("FourSwordsRecomp v%s\n", FSR_VERSION);
+            std::printf("FourSwordsRecomp v%s\ncommit %s%s\nengine %s, patches %s\n", FSR_VERSION,
+                        FSR_GIT_COMMIT, FSR_GIT_DIRTY ? " (with local changes)" : "",
+                        FSR_ENGINE_COMMIT, FSR_ENGINE_PATCHES);
             return 0;
         }
         if (std::strcmp(argv[i], "--help") == 0 || std::strcmp(argv[i], "-h") == 0) {
