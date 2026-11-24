@@ -31,6 +31,7 @@
 #include "fs_wide.h"
 #endif
 #include "host_platform.h"
+#include "host_platform.h"
 #include "host_window.h"
 #include "multiplayer_launch.h"
 #include "multiplayer_session.h"
@@ -41,7 +42,6 @@ namespace {
 using Clock = std::chrono::steady_clock;
 
 constexpr int kWidth = 240, kHeight = 160;
-constexpr auto kFramePeriod = std::chrono::nanoseconds(280896LL * 1000000000LL / 16777216LL);
 // The game writes a file as many EEPROM blocks over several frames; a GBA's
 // file is merged once its EEPROM has been idle this long, never mid-write.
 constexpr unsigned kSaveQuietFrames = 60;
@@ -344,7 +344,11 @@ int run_session(const gbarecomp::GbaNetplayLaunch& launch, const gbarecomp::GbaN
     std::array<bool, kLocalMaxPlayers> pending{};
     std::array<unsigned, kLocalMaxPlayers> quiet{};
     bool paused = false, waiting_for_pad = false;
-    auto next = Clock::now();
+    // The engine's frame limiter, as in single player: a high-resolution
+    // waitable timer on Windows, and a late frame is never paid back with a
+    // short one. The plain sleep_until used before woke on Windows' ~15.6 ms
+    // tick: 16.74 +- 4.5 ms between presents (24 Nov 2026 measurements).
+    gbarecomp::FramePacer pacer;
     // Work per loop (emulating every GBA, drawing and presenting), against
     // the GBA's 16.74 ms frame: logged every 600 frames and at the end, so a
     // session shows whether this machine kept up (docs/PLAYTEST.md).
@@ -528,6 +532,10 @@ int run_session(const gbarecomp::GbaNetplayLaunch& launch, const gbarecomp::GbaN
             if (last_present != Clock::time_point{}) {
                 const double gap = std::chrono::duration<double, std::milli>(presented - last_present).count();
                 ++interval_counts[gap < 12 ? 0 : gap < 15 ? 1 : gap < 18.5 ? 2 : gap < 25 ? 3 : gap < 35 ? 4 : 5];
+                if (gap >= 35) {   // more than two GBA frames between pictures
+                    ++timing.stalls;
+                    ++all_timing.stalls;
+                }
                 interval_sum += gap;
                 interval_sq += gap * gap;
                 ++intervals;
@@ -567,16 +575,7 @@ int run_session(const gbarecomp::GbaNetplayLaunch& launch, const gbarecomp::GbaN
                 timing = {};
             }
         }
-        next += kFramePeriod;
-        const auto now = Clock::now();
-        if (now > next + kFramePeriod * 4) {
-            next = now;  // a long stall: drop the backlog
-            ++timing.stalls;
-            ++all_timing.stalls;
-        } else {
-            std::this_thread::sleep_until(next - std::chrono::milliseconds(1));
-            while (Clock::now() < next) std::this_thread::yield();
-        }
+        pacer.wait_for_next_frame();
     }
 
     std::vector<unsigned> unsaved;
