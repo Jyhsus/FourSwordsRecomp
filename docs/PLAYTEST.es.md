@@ -124,11 +124,14 @@ en el PC de desarrollo (el juego va a un 93 % y da tirones); con 4, quedaos en
 3:2. Marca **16:9 view (experimental)** y repite A, B y C (y, si da tiempo, E)
 con el mismo número de jugadores. Compara con 3:2:
 - cada vista enseña más sala a los lados, sin estirarse;
-- el HUD (corazones, rupias y objeto) va en los bordes, y se desplaza un
-  poco hacia dentro mientras hay un cuadro de texto abierto (es lo esperado);
-- durante las cargas, y en pantallas que no son una fase (lobby, menús,
-  selección de fase, fuente de hadas), la imagen es 3:2 con bandas negras
-  (también es lo esperado).
+- el HUD (corazones, rupias y objeto) se queda en los bordes, también con
+  mensajes, avisos de rupias "+20" y el menú de pausa (L mantenido); los
+  mensajes y el menú van con la imagen;
+- junto al menú de pausa los márgenes enseñan la sala, no bloques negros;
+- durante las cargas, y en pantallas que no son una fase (título, lobby,
+  selección de fase, fuente de hadas), la imagen es 3:2 con bandas gris
+  oscuro (es lo diseñado: no hay nada real que enseñar a los lados); el
+  negro alrededor del efecto de entrada a una zona es del propio efecto.
 
 Si algo falla en 16:9, vuelve a 3:2 y sigue la prueba allí.
 

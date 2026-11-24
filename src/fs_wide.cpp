@@ -112,6 +112,7 @@ enum : std::uint8_t { kNative = 0, kLeft, kCentre, kRight };
 struct HudState {
     const gba::GbaBus* bus = nullptr;
     bool active = false;                                   // BG0 is the plain HUD layer
+    bool bands = false;                                    // this frame is shown 3:2 with bands
     std::array<std::uint8_t, kRows * kColumns> kind{};     // per BG0 cell (classify_hud)
 };
 std::array<HudState, 4> g_hud;
@@ -282,9 +283,12 @@ void on_init(std::uint32_t /*left*/, std::uint32_t /*right*/) {
 void on_frame(const gbarecomp::ExtendedViewFrameInfo* info) {
     const gba::GbaBus* bus = gbarecomp::active_bus();
     const std::uint8_t* iw = bus ? bus->iwram_ptr() : nullptr;
-    // Outside a stage (title, lobby, menus) the margins stay black.
+    // Outside a stage (title, lobby, menus) the picture is 3:2 with bands.
     if (!iw || iw[kGameMode] != kModeStage) {
-        if (bus) hud_state(bus).active = false;
+        if (bus) {
+            hud_state(bus).active = false;
+            hud_state(bus).bands = true;
+        }
         gba::g_ws_authored_margin_layers = 0;
         gba::g_ws_pillarbox = 1;
         gba::g_ws_native_view_left = -1;
@@ -299,11 +303,13 @@ void on_frame(const gbarecomp::ExtendedViewFrameInfo* info) {
     // stage differs everywhere.
     if (screen_mismatches(bus, 1) > kMaxMismatches || screen_mismatches(bus, 2) > kMaxMismatches) {
         hud_state(bus).active = false;
+        hud_state(bus).bands = true;
         gba::g_ws_authored_margin_layers = 0;
         gba::g_ws_pillarbox = 1;
         gba::g_ws_native_view_left = -1;
         return;
     }
+    hud_state(bus).bands = false;
     gba::g_ws_pillarbox = 0;
     classify_hud(bus, hud_state(bus));
     // Graphic windows (the pause menu's box is WIN1) do not reach the
@@ -353,6 +359,13 @@ int wide_screen_mismatches(const gba::GbaBus& bus, int bg) {
 
 int wide_hud_reason(const gba::GbaBus& bus) {
     return hud_reason(&bus);
+}
+
+bool wide_bands(const gba::GbaBus& bus) {
+    for (const HudState& state : g_hud) {
+        if (state.bus == &bus) return state.bands;
+    }
+    return false;
 }
 
 gbarecomp::GbaNetplayViewPolicy wide_view_policy() {

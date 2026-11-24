@@ -27,4 +27,16 @@ int wide_screen_mismatches(const gba::GbaBus& bus, int bg);
 // scrolled, 4 a tile outside the HUD's places, 5 a HUD row across a cut.
 int wide_hud_reason(const gba::GbaBus& bus);
 
+// True when the wide view showed this GBA's last frame as the 240-column
+// picture with bands at the sides: outside a stage (title, lobby, stage
+// select, fairy fountain) and while the screen is not the stage (loads).
+// The window then fills the bands with kWideBandColour instead of black.
+// Black left by the game's own effects (the area-entry window) is not bands.
+bool wide_bands(const gba::GbaBus& bus);
+
+// The bands' fixed colour (RGB): a dark neutral grey, so a 16:9 view keeps
+// its shape when the game shows a 3:2 screen and does not read as the black
+// of the picture itself.
+inline constexpr unsigned char kWideBandColour[3] = {34, 34, 38};
+
 }  // namespace fsr

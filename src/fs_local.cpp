@@ -284,6 +284,7 @@ int run_session(const gbarecomp::GbaNetplayLaunch& launch, const gbarecomp::GbaN
     int view_w = kWidth;
 #if defined(FSR_WIDE_VIEW)
     std::vector<std::unique_ptr<GbaNetplayPresentation>> mirrors;
+    std::vector<std::uint8_t> banded;   // a mirror picture with its bands filled
     struct Detach {
         GbaMultiplayerSession& session;
         unsigned players;
@@ -519,6 +520,20 @@ int run_session(const gbarecomp::GbaNetplayLaunch& launch, const gbarecomp::GbaN
                     pixels = mirrors[id]->pixels();
                 }
                 if (id < mirrors.size() && !pixels) continue;
+                // A 3:2 screen inside the 16:9 view: fixed-colour bands
+                // (fs_wide.h) instead of the mirror's black margins.
+                if (pixels && id < mirrors.size() && wide_bands(session.machine(id).bus)) {
+                    const int side = (view_w - kWidth) / 2;
+                    banded.assign(pixels, pixels + static_cast<std::size_t>(view_w) * kHeight * 3);
+                    for (int y = 0; y < kHeight; ++y) {
+                        std::uint8_t* row = banded.data() + static_cast<std::size_t>(y) * view_w * 3;
+                        for (int x = 0; x < view_w; ++x) {
+                            if (x >= side && x < side + kWidth) continue;
+                            std::memcpy(row + x * 3, kWideBandColour, 3);
+                        }
+                    }
+                    pixels = banded.data();
+                }
 #endif
                 if (!pixels) pixels = session.machine(id).ppu.latched_framebuffer();
                 scaler.blit(pixels, canvas.data() + view.y * stride + static_cast<std::size_t>(view.x) * 3,

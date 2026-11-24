@@ -1041,3 +1041,13 @@ session hash is unchanged (`2cc03dd9`). Not seen: the "P1 is down!" message
 
 The same session also showed stutter in both views. That was not the wide
 view: frame pacing and code read from disk on first use (section 10).
+
+**Bands (24 Nov 2026).** Screens shown 3:2 inside the 16:9 view (title,
+lobby, stage select, fairy fountain, loads) had black bands, which read as
+part of the picture and made the change of shape abrupt. The window now
+fills those bands with a fixed dark grey (RGB 34, 34, 38; `kWideBandColour`
+in `src/fs_wide.h`), so each view keeps its 16:9 shape. Only the bands are
+filled: `fsr::wide_bands()` is true when the wide view itself decided the
+frame is not a stage; black that comes from the game (the area-entry
+effect's WINOUT = 0) stays black. Checked in the executable at the lobby,
+stage select, area entry and play.

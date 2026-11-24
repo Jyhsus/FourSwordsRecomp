@@ -1108,3 +1108,14 @@ down!" (no está en la grabación).
 La misma sesión mostró además tirones en las dos vistas. No eran de la vista
 ancha: el ritmo de frames y el código leído del disco la primera vez
 (sección 10).
+
+**Bandas (24 nov 2026).** Las pantallas que se ven en 3:2 dentro de la vista
+16:9 (título, lobby, selección de fase, fuente de hadas, cargas) tenían
+bandas negras, que se confundían con la propia imagen y hacían brusco el
+cambio de forma. La ventana rellena ahora esas bandas con un gris oscuro fijo
+(RGB 34, 34, 38; `kWideBandColour` en `src/fs_wide.h`), así que cada vista
+conserva su forma 16:9. Solo se rellenan las bandas: `fsr::wide_bands()` es
+cierto cuando la propia vista ancha decidió que el frame no es una fase; el
+negro que viene del juego (el efecto de entrada a una zona, con WINOUT = 0)
+sigue negro. Comprobado en el ejecutable en el lobby, la selección de fase,
+la entrada a una zona y el juego.

@@ -124,11 +124,14 @@ development PC (the game runs at about 93 % and stutters); with 4, stay in
 3:2. Turn on **16:9 view (experimental)** and repeat A, B and C (and E if
 there is time) with the same number of players. Compare with 3:2:
 - each view shows more of the room at the sides, without stretching;
-- the HUD (hearts, rupees and item) sits at the edges, and moves a little
-  inward while a text box is open (expected);
-- while loading, and on screens that are not a stage (lobby, menus, stage
-  select, the fairy fountain), the picture is 3:2 with black bars (also
-  expected).
+- the HUD (hearts, rupees and item) stays at the edges, also with messages,
+  "+20" rupee popups and the pause menu (held L); messages and the menu sit
+  with the picture;
+- beside the pause menu the margins show the room, not black blocks;
+- while loading, and on screens that are not a stage (title, lobby, stage
+  select, the fairy fountain), the picture is 3:2 with dark grey bands (as
+  designed: there is nothing real to show at the sides); the black around
+  the area-entry effect belongs to the effect.
 
 If something breaks in 16:9, go back to 3:2 and carry on there.
 
