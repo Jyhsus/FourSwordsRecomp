@@ -1039,3 +1039,40 @@ proveedores del juego añaden 0,6 ms). Por eso cuatro jugadores en 16:9 van a
 un 93 % de la velocidad en la máquina de desarrollo, y la página Local lo
 avisa; dos y tres jugadores mantienen la velocidad completa (tabla en la
 sección 10).
+
+**Tras la primera prueba manual (24 nov 2026).** Una sesión de dos jugadores
+de 53.125 frames en 16:9, repetida exactamente con su `inputs.inputs` (las 88
+instantáneas de escena coinciden), mostró dos defectos de la vista ancha,
+ambos corregidos:
+
+* *El HUD saltaba.* La regla anterior era de todo o nada: cualquier tile de
+  BG0 fuera de los sitios del HUD devolvía todo el HUD a su posición de 240.
+  Pasaba en el 38 % de los frames de juego: con cada "+20" de rupias (dos
+  segundos, justo encima del contador), con cada mensaje ("You lose 50
+  Rupees!", "A Rupee Wraith appeared!") y en todo el piso del jefe, cuyo
+  contador ("x2 2132") empieza una columna más a la izquierda. Ahora cada
+  celda de BG0 se coloca por separado en cada frame: en las cuatro filas de
+  arriba, un grupo que empieza a la izquierda va al borde izquierdo, los
+  corazones siguen en el centro y el grupo de la derecha va al borde derecho;
+  en las cinco filas de abajo, el grupo que llega al lado derecho (contador,
+  avisos) va al borde derecho; todo lo demás (mensajes, menús) sigue con las
+  240 columnas nativas, alineado con el mundo y sus sprites. Un grupo es una
+  serie de celdas usadas con, como mucho, una celda vacía dentro.
+* *Bloques negros junto al menú.* El menú de pausa (L mantenido) se dibuja
+  dentro de WIN1 (x 80–160, y 40–120), con WINOUT mostrando el mundo. El
+  motor pinta en negro una fila de margen cuando la ventana no es uniforme a
+  lo largo de ella. Mientras haya ventanas y WINOUT muestre BG1 y BG2, los
+  márgenes se tratan ahora como fuera de toda ventana
+  (`g_ws_authored_margin_layers`), así que decide WINOUT, como junto al menú
+  en la GBA. El efecto de entrada a una zona tiene WINOUT = 0 y conserva los
+  márgenes en negro.
+
+Comprobado desde estados guardados de la sesión: el menú abierto en el borde
+derecho de la fase, en el izquierdo y caminando (el menú no pausa el juego),
+mensajes, el piso del jefe y el efecto de entrada a una zona. El hash de
+sesión con cuatro GBAs no cambia (`2cc03dd9`). Sin ver: el mensaje "P1 is
+down!" (no está en la grabación).
+
+La misma sesión mostró además tirones en las dos vistas. No eran de la vista
+ancha: el ritmo de frames y el código leído del disco la primera vez
+(sección 10).

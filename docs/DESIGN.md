@@ -975,3 +975,37 @@ with a 240-column mirror and 15.2 ms with a 284-column one (probe, no window;
 the game's providers add 0.6 ms). Four players in 16:9 therefore run at
 about 93 % speed on the development machine, and the Local page warns;
 two and three players keep full speed (table in section 10).
+
+**After the first manual test (24 Nov 2026).** A 53,125-frame two-player
+session in 16:9, replayed exactly from its `inputs.inputs` (all 88 scene
+checkpoints match), showed two defects of the wide view, both fixed:
+
+* *The HUD jumped.* The rule above was all or nothing: any BG0 tile outside
+  the HUD's places put the whole HUD back at its 240-wide place. That
+  happened in 38 % of play frames: every "+20" rupee popup (two seconds,
+  just above the counter), every message ("You lose 50 Rupees!", "A Rupee
+  Wraith appeared!") and the whole boss floor, whose rupee counter
+  ("x2 2132") starts one column further left. Now every BG0 cell is placed
+  on its own, every frame: in the top four rows a group starting at the left
+  goes to the left edge, the hearts stay in the middle, the group at the
+  right goes to the right edge; in the bottom five rows the group reaching
+  the right side (counter, popups) goes to the right edge; everything else
+  (messages, menus) stays with the 240 native columns, lined up with the
+  world and its sprites. A group is a run of used cells with at most one
+  empty cell inside.
+* *Black blocks beside the menu.* The pause menu (held L) is drawn inside
+  WIN1 (x 80–160, y 40–120), WINOUT showing the world. The engine draws a
+  margin row black when the window is not uniform along it. While windows
+  are on and WINOUT shows BG1 and BG2, the margins are now treated as
+  outside every window (`g_ws_authored_margin_layers`), so WINOUT decides
+  there, as beside the menu on the GBA. The area-entry effect has WINOUT = 0
+  and keeps black margins.
+
+Checked from saved states of the session: the menu opened at the stage's
+right edge, at its left edge and while walking (the menu does not pause the
+game), messages, the boss floor and the area-entry effect. The four-GBA
+session hash is unchanged (`2cc03dd9`). Not seen: the "P1 is down!" message
+(not in the recording).
+
+The same session also showed stutter in both views. That was not the wide
+view: frame pacing and code read from disk on first use (section 10).

@@ -103,13 +103,16 @@ int screen_mismatches(const gba::GbaBus* bus, int bg) {
 // edge, the hearts stay in the middle. Columns of the 240-wide screen:
 constexpr int kHudLeftEnd = 96, kHudRightStart = 192;      // pixels; tile columns 12 and 24
 constexpr int kHudTopRows = 4, kHudBottomRow = 17;         // tile rows 0-3, and 17-19 at the right
+constexpr int kHudBottomBand = 15;                         // rows 15-19 may hold the bottom right group
+constexpr int kRows = 20, kColumns = 30;                   // BG0 cells on the 240x160 screen
+enum : std::uint8_t { kNative = 0, kLeft, kCentre, kRight };
 
-// Whether a GBA's BG0 holds the plain HUD and nothing else this frame. Kept
-// per GBA: the machines of a session take turns, so a single flag would mix
-// them up.
+// Where a GBA's BG0 cells go this frame (classify_hud). Kept per GBA: the
+// machines of a session take turns, so a single table would mix them up.
 struct HudState {
     const gba::GbaBus* bus = nullptr;
-    bool plain = false;
+    bool active = false;                                   // BG0 is the plain HUD layer
+    std::array<std::uint8_t, kRows * kColumns> kind{};     // per BG0 cell (classify_hud)
 };
 std::array<HudState, 4> g_hud;
 
@@ -120,7 +123,8 @@ HudState& hud_state(const gba::GbaBus* bus) {
     for (HudState& state : g_hud) {
         if (!state.bus) { state.bus = bus; return state; }
     }
-    g_hud[0] = {bus, false};
+    g_hud[0] = HudState{};
+    g_hud[0].bus = bus;
     return g_hud[0];
 }
 
@@ -128,13 +132,10 @@ const std::uint8_t* bg0_map(const gba::GbaBus* bus) {
     return bus->vram_ptr() + ((u16(bus->io().raw() + 0x08) >> 8) & 0x1F) * 0x800;
 }
 
-// The HUD may be moved only when that cannot break anything: no windows, BG0
-// a plain unscrolled 256x256 map, tiles only where the HUD has them, and no
-// group reaching across a cut. Anything else (a text box, a menu, a fade
-// through a window) keeps the original placement.
-// Why BG0 is not just the HUD this frame (0 = it is). Diagnostic codes:
-// 1 a window is on, 2 BG0 is larger than 256x256, 3 BG0 is scrolled,
-// 4 a tile outside the HUD's places (text, a menu), 5 a HUD row crosses a cut.
+// Why BG0 does not hold just the HUD this frame (0 = it does). Diagnostic
+// only (FourSwordsLinkProbe --map-log): 1 a window is on, 2 BG0 is larger than
+// 256x256, 3 BG0 is scrolled, 4 a tile outside the HUD's places (a message, a
+// menu), 5 a HUD row crosses a cut.
 int hud_reason(const gba::GbaBus* bus) {
     const std::uint8_t* io = bus->io().raw();
     if (u16(io) & 0xE000) return 1;
@@ -156,34 +157,85 @@ int hud_reason(const gba::GbaBus* bus) {
     return 0;
 }
 
-bool plain_hud(const gba::GbaBus* bus) { return hud_reason(bus) == 0; }
+// Where each BG0 cell goes on the wide picture. Decided per cell, every
+// frame, so a message or a menu never moves the HUD (19 Nov playtest: the
+// whole HUD went back to its 240-wide place for every "+20" rupee popup,
+// every message and the whole boss floor, whose rupee counter is wider):
+//   left    the HUD's group at the top left           -> the picture's left edge
+//   centre  the hearts, top middle                    -> the picture's middle
+//   right   the top right group, and the bottom right
+//           group (rupees, "+20" popups)              -> the picture's right edge
+//   native  everything else (messages, menus)         -> with the 240 native
+//           columns, so it stays lined up with the world and its sprites
+// A group is a run of used cells in one row, with at most one empty cell
+// inside. Only the top four and bottom five rows hold HUD groups.
+void classify_hud(const gba::GbaBus* bus, HudState& state) {
+    state.kind.fill(kNative);
+    const std::uint8_t* io = bus->io().raw();
+    state.active = !(u16(io + 0x08) & 0xC000) && !(u16(io + 0x10) & 0x1FF) && !(u16(io + 0x12) & 0x1FF);
+    if (!state.active) return;   // BG0 is not the plain 256x256 HUD layer: leave it alone
+    const std::uint8_t* map = bg0_map(bus);
+    for (int ty = 0; ty < kRows; ++ty) {
+        const bool top = ty < kHudTopRows, bottom = ty >= kHudBottomBand;
+        if (!top && !bottom) continue;
+        for (int tx = 0; tx < kColumns;) {
+            if (!u16(map + (ty * 32 + tx) * 2)) { ++tx; continue; }
+            int end = tx;   // last used cell of the run
+            for (int next = tx + 1; next < kColumns && next <= end + 2; ++next) {
+                if (u16(map + (ty * 32 + next) * 2)) end = next;
+            }
+            std::uint8_t kind = kNative;
+            if (top && tx <= 3 && end < kHudLeftEnd / 8) kind = kLeft;
+            else if (top && tx >= 8 && end < kHudRightStart / 8) kind = kCentre;
+            else if (tx >= (top ? 22 : 20) && end >= 26) kind = kRight;
+            for (int c = tx; c <= end; ++c) state.kind[ty * kColumns + c] = kind;
+            tx = end + 1;
+        }
+    }
+}
 
-// Canvas column of a native HUD column.
-int hud_canvas_x(int x) {
+// The canvas column of native column 0 for a kind.
+int kind_shift(std::uint8_t kind) {
     const int extra = static_cast<int>(g_ws_view_width) - 240;
-    return x < kHudLeftEnd ? x : x >= kHudRightStart ? x + extra : x + extra / 2;
+    switch (kind) {
+    case kLeft: return 0;
+    case kCentre: return extra / 2;
+    case kRight: return extra;
+    default:
+        return gba::g_ws_native_view_left >= 0 ? gba::g_ws_native_view_left : static_cast<int>(g_ws_extra_left);
+    }
 }
 
 // BG0: which native column each canvas column shows (-1: none).
-int hud_bg_x(int /*bg*/, int x, int /*y*/, int* out_hw_x) {
+int hud_bg_x(int /*bg*/, int x, int y, int* out_hw_x) {
     const gba::GbaBus* bus = gbarecomp::active_bus();
-    if (!bus || !hud_state(bus).plain) return 0;
-    const int width = static_cast<int>(g_ws_view_width), extra = width - 240;
-    int hw = -1;
-    if (x < kHudLeftEnd) hw = x;
-    else if (x >= width - (240 - kHudRightStart)) hw = x - extra;
-    else if (x - extra / 2 >= kHudLeftEnd && x - extra / 2 < kHudRightStart) hw = x - extra / 2;
-    if (hw < 0) return -1;
-    *out_hw_x = hw;
+    if (!bus || y < 0 || y >= 160) return 0;
+    const HudState& state = hud_state(bus);
+    if (!state.active) return 0;
+    const std::uint8_t* map = bg0_map(bus);
+    const int ty = y >> 3;
+    // A moved HUD group first, then whatever stays with the native columns.
+    for (const std::uint8_t kind : {kRight, kLeft, kCentre}) {
+        const int hx = x - kind_shift(kind);
+        if (hx < 0 || hx >= 240 || state.kind[ty * kColumns + (hx >> 3)] != kind) continue;
+        if (!u16(map + (ty * 32 + (hx >> 3)) * 2)) continue;
+        *out_hw_x = hx;
+        return 1;
+    }
+    const int hx = x - kind_shift(kNative);
+    if (hx < 0 || hx >= 240 || state.kind[ty * kColumns + (hx >> 3)] != kNative) return -1;
+    *out_hw_x = hx;
     return 1;
 }
 
-// Sprites: a priority-0 sprite whose centre lies on a HUD tile moves with
-// that tile. Everything else is a world sprite and is left alone.
+// Sprites: a priority-0 sprite whose centre lies on a used BG0 cell moves
+// with that cell (the item icon on its frame). Everything else is left alone.
 int hud_obj_x(int /*index*/, std::uint16_t attr0, std::uint16_t attr1, std::uint16_t attr2, int* out_x) {
     if ((attr2 >> 10) & 3) return 0;
     const gba::GbaBus* bus = gbarecomp::active_bus();
-    if (!bus || !hud_state(bus).plain) return 0;
+    if (!bus) return 0;
+    const HudState& state = hud_state(bus);
+    if (!state.active) return 0;
     static constexpr int kSize[3][4][2] = {
         {{8, 8}, {16, 16}, {32, 32}, {64, 64}},
         {{16, 8}, {32, 8}, {32, 16}, {64, 32}},
@@ -197,9 +249,9 @@ int hud_obj_x(int /*index*/, std::uint16_t attr0, std::uint16_t attr1, std::uint
     const int cy = y + kSize[shape][(attr1 >> 14) & 3][1] / 2;
     if (cx < 0 || cx >= 240 || cy < 0 || cy >= 160) return 0;
     if (u16(bg0_map(bus) + ((cy >> 3) * 32 + (cx >> 3)) * 2) == 0) return 0;
-    const int left = gba::g_ws_native_view_left >= 0 ? gba::g_ws_native_view_left
-                                                     : static_cast<int>(g_ws_extra_left);
-    *out_x = x + hud_canvas_x(cx) - cx - left;
+    const std::uint8_t kind = state.kind[(cy >> 3) * kColumns + (cx >> 3)];
+    if (kind == kNative) return 0;
+    *out_x = x + kind_shift(kind) - kind_shift(kNative);
     return 1;
 }
 
@@ -232,7 +284,8 @@ void on_frame(const gbarecomp::ExtendedViewFrameInfo* info) {
     const std::uint8_t* iw = bus ? bus->iwram_ptr() : nullptr;
     // Outside a stage (title, lobby, menus) the margins stay black.
     if (!iw || iw[kGameMode] != kModeStage) {
-        if (bus) hud_state(bus).plain = false;
+        if (bus) hud_state(bus).active = false;
+        gba::g_ws_authored_margin_layers = 0;
         gba::g_ws_pillarbox = 1;
         gba::g_ws_native_view_left = -1;
         return;
@@ -245,13 +298,24 @@ void on_frame(const gbarecomp::ExtendedViewFrameInfo* info) {
     // frame, when the game changes part of the map; a screen that is not the
     // stage differs everywhere.
     if (screen_mismatches(bus, 1) > kMaxMismatches || screen_mismatches(bus, 2) > kMaxMismatches) {
-        hud_state(bus).plain = false;
+        hud_state(bus).active = false;
+        gba::g_ws_authored_margin_layers = 0;
         gba::g_ws_pillarbox = 1;
         gba::g_ws_native_view_left = -1;
         return;
     }
     gba::g_ws_pillarbox = 0;
-    hud_state(bus).plain = plain_hud(bus);
+    classify_hud(bus, hud_state(bus));
+    // Graphic windows (the pause menu's box is WIN1) do not reach the
+    // margins. Where windows are on, the engine draws a margin row black
+    // unless it is told the margins lie outside every window; then WINOUT
+    // decides what shows there, as it does beside the menu on the GBA. That
+    // is only safe while WINOUT shows the stage (BG1 and BG2): the area
+    // entry effect has WINOUT = 0, and its margins must stay black.
+    {
+        const std::uint8_t* io = bus->io().raw();
+        gba::g_ws_authored_margin_layers = (u16(io) & 0xE000) && (u16(io + 0x4A) & 0x6) == 0x6 ? 1 : 0;
+    }
     // The game stops its camera where a 240-pixel screen meets the stage's
     // edge. There the wide picture slides instead of showing nothing: the
     // native 240 columns move toward that side of the canvas.
@@ -274,6 +338,7 @@ void on_reset() {
     for (HudState& state : g_hud) {
         if (state.bus == gbarecomp::active_bus()) state = {};
     }
+    gba::g_ws_authored_margin_layers = 0;
     gba::g_ws_pillarbox = 0;
     gba::g_ws_native_view_left = -1;
 }
