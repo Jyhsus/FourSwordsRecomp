@@ -750,6 +750,38 @@ docs/PLAYTEST.md**).** Without people:
   and engine patches, writes every GBA's mode, stage state, stage, floor and
   camera every 600 frames, and the work time per frame.
 
+**Smoothness after the first manual test (24 Nov 2026).** The session
+(two players, 16:9, 53,125 frames, 33 stalls, peaks up to 368 ms) was
+replayed exactly from its `inputs.inputs` and `start.sav`. Each run's log
+now lists every frame over 33.5 ms with each part and the page faults it
+caused, and the time between presents. Two causes, both shared by 3:2 and
+16:9:
+
+* *Frame pacing.* The local runner waited with `sleep_until`, which on
+  Windows wakes on the ~15.6 ms system tick: 16.74 ± 4.5 ms between presents,
+  only 61 % of frames between 15 and 18.5 ms, the same with
+  `GBARECOMP_VSYNC=1`. It now uses the engine's `FramePacer`, as single
+  player does: 16.78 ± 0.75 ms, 99.4 % between 15 and 18.5 ms, in 3:2,
+  16:9 and with vsync. The game runs at 59.6 fps instead of 59.73 (a late
+  frame is never paid back with a short one).
+* *Code read from disk on first use.* The project is on a 5,400 rpm hard
+  disk and the executable is about 111 MB of code. Run from a copy made with
+  unbuffered I/O (so nothing of it is cached), 84 frames took over 33.5 ms,
+  up to 694 ms, all in "emulation", each with 160–300 page faults: the
+  intro, area changes, first encounters. `main()` now asks Windows to read
+  the whole image in the background at startup
+  (`PrefetchVirtualMemory`): the same cold run has 1 slow frame (the first),
+  worst 42 ms.
+
+Not explained: one 150 ms frame in one warm run, with no part of it
+measured as slow; it did not happen again. Link's shadow, reported as
+flickering, is the game's own: its sprite (16×8, tile 769) is in OAM only
+on every other frame, a usual GBA way to make a shadow look see-through on
+a slow LCD. It is kept. On a 144 Hz monitor each GBA frame stays on screen
+for 2 or 3 refreshes, unevenly, which may make that 30 Hz blink more
+visible than on the GBA; that is presentation, untested on other refresh
+rates.
+
 **Still open:**
 
 * No 2,800-frame run writes the EEPROM, so only the unit tests check the

@@ -181,6 +181,13 @@ exactly without people (developer instructions in DESIGN.md §10).
 ## 7. Known limitations
 
 - Only P1's GBA is heard.
+- Link's shadow blinking every other frame is how the game draws it (on the
+  GBA's slow screen it looked see-through); it is not a fault. If it bothers
+  you on a 144 Hz monitor, note it; a 60 or 120 Hz desktop mode may look
+  steadier (untested).
+- The first time each part of the game runs, its code is read from disk;
+  the game now reads it all in the background at startup, which takes a few
+  seconds on a hard disk. Wait on the launcher or the intro for a moment.
 - Speed measured on the development PC: 2 and 3 players at full speed in 3:2
   and in 16:9; 4 players at full speed in 3:2, with a frame shown late now
   and then (a small stutter may be noticeable); 4 players in 16:9, no. Each

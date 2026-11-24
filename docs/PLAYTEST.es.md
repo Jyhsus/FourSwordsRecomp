@@ -183,6 +183,14 @@ DESIGN.es.md §10).
 ## 7. Limitaciones conocidas
 
 - Solo se oye la GBA de J1.
+- La sombra de Link parpadea en frames alternos porque así la dibuja el
+  juego (en la pantalla lenta de la GBA parecía transparente); no es un
+  fallo. Si molesta en un monitor de 144 Hz, anotadlo; un modo de escritorio
+  de 60 o 120 Hz puede verse más estable (sin probar).
+- La primera vez que se ejecuta cada parte del juego su código se lee del
+  disco; ahora el juego lo lee todo en segundo plano al arrancar, lo que en
+  un disco duro tarda unos segundos. Esperad un momento en el launcher o en
+  la introducción.
 - Rendimiento medido en el PC de desarrollo: 2 y 3 jugadores a velocidad
   completa en 3:2 y en 16:9; 4 jugadores a velocidad completa en 3:2, con
   algún frame tardío (puede notarse un pequeño tirón de vez en cuando); 4

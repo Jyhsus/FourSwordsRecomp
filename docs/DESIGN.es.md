@@ -796,6 +796,38 @@ fondo sigue abierta (sección 9).
   cada 600 frames el modo, el estado de fase, la fase, el piso y la cámara de
   cada GBA, y el tiempo de trabajo por frame.
 
+**Fluidez tras la primera prueba manual (24 nov 2026).** La sesión (dos
+jugadores, 16:9, 53.125 frames, 33 parones, picos de hasta 368 ms) se repitió
+exactamente con su `inputs.inputs` y su `start.sav`. El registro de cada
+ejecución lista ahora todo frame de más de 33,5 ms con cada parte y los
+fallos de página que causó, y el tiempo entre presentaciones. Dos causas,
+compartidas por 3:2 y 16:9:
+
+* *Ritmo de frames.* El runner local esperaba con `sleep_until`, que en
+  Windows despierta con el tic de ~15,6 ms del sistema: 16,74 ± 4,5 ms entre
+  presentaciones, solo el 61 % de los frames entre 15 y 18,5 ms, y lo mismo
+  con `GBARECOMP_VSYNC=1`. Ahora usa el `FramePacer` del motor, como el modo
+  de un jugador: 16,78 ± 0,75 ms, el 99,4 % entre 15 y 18,5 ms, en 3:2, en
+  16:9 y con vsync. El juego va a 59,6 fps en vez de 59,73 (un frame tardío
+  nunca se compensa con uno corto).
+* *Código leído del disco la primera vez.* El proyecto está en un disco duro
+  de 5.400 rpm y el ejecutable son unos 111 MB de código. Ejecutado desde una
+  copia hecha con E/S sin búfer (así nada de él está en caché), 84 frames
+  pasaron de 33,5 ms, hasta 694 ms, todo en "emulación" y cada uno con
+  160–300 fallos de página: la introducción, los cambios de zona, los primeros
+  encuentros. `main()` pide ahora a Windows que lea toda la imagen en segundo
+  plano al arrancar (`PrefetchVirtualMemory`): la misma ejecución en frío
+  tiene 1 frame lento (el primero), con un peor caso de 42 ms.
+
+Sin explicar: un frame de 150 ms en una ejecución con caché, sin ninguna
+parte medida lenta; no volvió a ocurrir. La sombra de Link, de la que se
+dijo que parpadeaba, es del propio juego: su sprite (16×8, tile 769) solo
+está en la OAM uno de cada dos frames, una técnica habitual en GBA para que
+una sombra parezca transparente en una pantalla lenta. Se conserva. En un
+monitor de 144 Hz cada frame de GBA dura 2 o 3 refrescos de forma
+irregular, lo que puede hacer ese parpadeo de 30 Hz más visible que en la
+GBA; es presentación, sin probar a otras frecuencias.
+
 **Pendiente:**
 
 * Ninguna ejecución de 2.800 frames escribe la EEPROM, así que la fusión solo
