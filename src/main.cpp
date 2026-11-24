@@ -22,6 +22,7 @@
 #include <vector>
 
 #include "fsr_revision.h"
+#include "fs_sysinfo.h"
 #include "runtime.h"
 #include "fs_boot.h"
 #include "fs_save.h"
@@ -149,6 +150,10 @@ bool interactive(const std::vector<std::string>& args) {
 }  // namespace
 
 int main(int argc, char** argv) {
+    // Read the recompiled code from disk now, in the background, rather than
+    // piece by piece the first time each part runs during play: on a hard
+    // disk those reads stalled frames for up to 0.7 s (24 Nov 2026).
+    fsr::prefetch_own_image();
     for (int i = 1; i < argc; ++i) {
         if (std::strcmp(argv[i], "--version") == 0) {
             std::printf("FourSwordsRecomp v%s\ncommit %s%s\nengine %s, patches %s\n", FSR_VERSION,

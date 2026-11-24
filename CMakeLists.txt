@@ -91,6 +91,7 @@ target_link_libraries(fsr_game PRIVATE
 
 add_executable(FourSwordsRecomp
     src/main.cpp
+    src/fs_sysinfo.cpp
     $<TARGET_OBJECTS:fsr_game>)
 
 # Keep the big generated shards cheap to compile.
@@ -173,7 +174,7 @@ if(GBAGAME_RECOMP_UI)
     endif()
     target_link_libraries(FourSwordsRecomp PRIVATE game_launcher_ui)
     # Local split-screen multiplayer (section 10): SDL controllers + HostWindow.
-    target_sources(FourSwordsRecomp PRIVATE src/fs_local.cpp src/fs_pads.cpp src/fs_sysinfo.cpp)
+    target_sources(FourSwordsRecomp PRIVATE src/fs_local.cpp src/fs_pads.cpp)
     set_property(SOURCE src/main.cpp APPEND PROPERTY
         COMPILE_DEFINITIONS GBAGAME_RECOMP_UI)
 endif()
