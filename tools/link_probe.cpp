@@ -289,6 +289,11 @@ int main(int argc, char** argv) {
                              << w(io + 0x1A) << ' ' << w(io + 0x50) << ' ' << w(io + 0x52) << ' '
                              << w(io + 0x54);
                     for (unsigned i = 0x460; i < 0x470; i += 2) logs[id] << ' ' << w(iw + i);
+                    // Then: the wide view's HUD reason (fs_wide.h), WININ,
+                    // WINOUT, WIN0H, WIN0V, WIN1H, WIN1V (hex).
+                    logs[id] << ' ' << fsr::wide_hud_reason(bus) << ' ' << w(io + 0x48) << ' ' << w(io + 0x4A)
+                             << ' ' << w(io + 0x40) << ' ' << w(io + 0x44) << ' ' << w(io + 0x42) << ' '
+                             << w(io + 0x46);
                     // Last two fields: stage (0x03006C87) and floor (0x03006C84).
                     logs[id] << std::dec << ' ' << int(iw[0x6C87]) << ' ' << int(iw[0x6C84]) << '\n';
                 }

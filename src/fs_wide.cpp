@@ -132,11 +132,14 @@ const std::uint8_t* bg0_map(const gba::GbaBus* bus) {
 // a plain unscrolled 256x256 map, tiles only where the HUD has them, and no
 // group reaching across a cut. Anything else (a text box, a menu, a fade
 // through a window) keeps the original placement.
-bool plain_hud(const gba::GbaBus* bus) {
+// Why BG0 is not just the HUD this frame (0 = it is). Diagnostic codes:
+// 1 a window is on, 2 BG0 is larger than 256x256, 3 BG0 is scrolled,
+// 4 a tile outside the HUD's places (text, a menu), 5 a HUD row crosses a cut.
+int hud_reason(const gba::GbaBus* bus) {
     const std::uint8_t* io = bus->io().raw();
-    if (u16(io) & 0xE000) return false;                                  // any window
-    if (u16(io + 0x08) & 0xC000) return false;                           // BG0 larger than 256x256
-    if ((u16(io + 0x10) & 0x1FF) || (u16(io + 0x12) & 0x1FF)) return false;
+    if (u16(io) & 0xE000) return 1;
+    if (u16(io + 0x08) & 0xC000) return 2;
+    if ((u16(io + 0x10) & 0x1FF) || (u16(io + 0x12) & 0x1FF)) return 3;
     const std::uint8_t* map = bg0_map(bus);
     const auto used = [map](int tx, int ty) { return u16(map + (ty * 32 + tx) * 2) != 0; };
     for (int ty = 0; ty < 20; ++ty) {
@@ -144,14 +147,16 @@ bool plain_hud(const gba::GbaBus* bus) {
             if (!used(tx, ty)) continue;
             const bool top = ty < kHudTopRows;
             const bool bottom_right = ty >= kHudBottomRow && tx >= kHudRightStart / 8;
-            if (!top && !bottom_right) return false;
+            if (!top && !bottom_right) return 4;
         }
         for (const int cut : {kHudLeftEnd / 8, kHudRightStart / 8}) {
-            if (ty < kHudTopRows && used(cut - 1, ty) && used(cut, ty)) return false;
+            if (ty < kHudTopRows && used(cut - 1, ty) && used(cut, ty)) return 5;
         }
     }
-    return true;
+    return 0;
 }
+
+bool plain_hud(const gba::GbaBus* bus) { return hud_reason(bus) == 0; }
 
 // Canvas column of a native HUD column.
 int hud_canvas_x(int x) {
@@ -279,6 +284,10 @@ namespace fsr {
 
 int wide_screen_mismatches(const gba::GbaBus& bus, int bg) {
     return screen_mismatches(&bus, bg);
+}
+
+int wide_hud_reason(const gba::GbaBus& bus) {
+    return hud_reason(&bus);
 }
 
 gbarecomp::GbaNetplayViewPolicy wide_view_policy() {

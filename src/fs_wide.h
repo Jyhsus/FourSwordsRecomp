@@ -22,4 +22,9 @@ gbarecomp::GbaNetplayViewPolicy wide_view_policy();
 // buffer the wide view reads, for bg 1 or 2 (0 = the screen shows that stage).
 int wide_screen_mismatches(const gba::GbaBus& bus, int bg);
 
+// Diagnostic: 0 when BG0 holds only the HUD (the wide view then moves it to
+// the edges), else why not: 1 window on, 2 BG0 larger than 256x256, 3 BG0
+// scrolled, 4 a tile outside the HUD's places, 5 a HUD row across a cut.
+int wide_hud_reason(const gba::GbaBus& bus);
+
 }  // namespace fsr

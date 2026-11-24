@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <chrono>
+#include <cmath>
 #include <climits>
 #include <cstdarg>
 #include <cstdio>
@@ -25,9 +26,11 @@
 #include "fs_layout.h"
 #include "fs_pads.h"
 #include "fs_save.h"
+#include "fs_sysinfo.h"
 #if defined(FSR_WIDE_VIEW)
 #include "fs_wide.h"
 #endif
+#include "host_platform.h"
 #include "host_window.h"
 #include "multiplayer_launch.h"
 #include "multiplayer_session.h"
@@ -356,7 +359,22 @@ int run_session(const gbarecomp::GbaNetplayLaunch& launch, const gbarecomp::GbaN
             late += ms > 16.743;
         }
     } timing, all_timing;
-    double emu_ms = 0, draw_ms = 0, present_ms = 0;
+    double emu_ms = 0, draw_ms = 0, present_ms = 0, events_ms = 0, save_ms = 0, log_ms = 0, audio_ms = 0;
+    // Frames whose work takes more than two GBA frames are listed one by one
+    // (at most kSlowFramesListed per session) with each part and the page
+    // faults they caused, to tell game work from memory brought in from disk.
+    constexpr double kSlowFrameMs = 33.5;
+    constexpr unsigned kSlowFramesListed = 300;
+    unsigned slow_listed = 0;
+    std::uint64_t faults_before = process_page_faults();
+    // Time between consecutive presents: how evenly frames reach the screen.
+    std::array<std::uint32_t, 6> interval_counts{};   // <12, 12-15, 15-18.5, 18.5-25, 25-35, >=35 ms
+    double interval_sum = 0, interval_sq = 0;
+    std::uint32_t intervals = 0;
+    Clock::time_point last_present{};
+    log.line("vsync requested: %s (GBARECOMP_VSYNC)",
+             std::getenv("GBARECOMP_VSYNC") && *std::getenv("GBARECOMP_VSYNC") &&
+                     *std::getenv("GBARECOMP_VSYNC") != '0' ? "yes" : "no");
     const auto since = [](Clock::time_point start) {
         return std::chrono::duration<double, std::milli>(Clock::now() - start).count();
     };
@@ -371,6 +389,8 @@ int run_session(const gbarecomp::GbaNetplayLaunch& launch, const gbarecomp::GbaN
     for (;;) {
         const auto work_start = Clock::now();
         const auto events = window.pump();
+        events_ms = std::chrono::duration<double, std::milli>(Clock::now() - work_start).count();
+        save_ms = log_ms = audio_ms = emu_ms = draw_ms = present_ms = 0;
         if (events.quit || events.terminating || quit_to_menu()) break;
         if (events.toggle_pause) {
             paused = !paused;
@@ -408,7 +428,9 @@ int run_session(const gbarecomp::GbaNetplayLaunch& launch, const gbarecomp::GbaN
                 const auto& row = script[std::min<std::size_t>(tick, script.size() - 1)];
                 for (unsigned id = 0; id < players; ++id) buttons[id] |= row[id];
             }
+            const auto log_start = Clock::now();
             log.inputs(tick, std::span<const std::uint16_t>(buttons.data(), players));
+            log_ms = since(log_start);
             const auto emu_start = Clock::now();
             try {
                 session.run_frame(std::span(buttons.data(), players));
@@ -435,14 +457,18 @@ int run_session(const gbarecomp::GbaNetplayLaunch& launch, const gbarecomp::GbaN
                     where += part;
                 }
                 where.pop_back();
+                const auto line_start = Clock::now();
                 log.line("%s", where.c_str());
+                log_ms += since(line_start);
             }
 
+            const auto audio_start = Clock::now();
             auto& sound = session.machine(0).bus.audio();
             while (const std::size_t n = sound.drain_samples(audio.data(), audio.size())) {
                 window.push_audio_samples(audio.data(), n);
             }
             for (unsigned id = 1; id < players; ++id) session.machine(id).bus.audio().discard_output();
+            audio_ms = since(audio_start);
 
             std::vector<unsigned> idle;
             for (unsigned id = 0; id < players; ++id) {
@@ -457,7 +483,9 @@ int run_session(const gbarecomp::GbaNetplayLaunch& launch, const gbarecomp::GbaN
                     idle.push_back(id);
                 }
             }
+            const auto save_start = Clock::now();
             merge(idle);
+            save_ms = std::chrono::duration<double, std::milli>(Clock::now() - save_start).count();
         }
 
         // The canvas is the window's own pixels; each view is scaled into its
@@ -496,6 +524,15 @@ int run_session(const gbarecomp::GbaNetplayLaunch& launch, const gbarecomp::GbaN
             const auto present_start = Clock::now();
             window.present(canvas.data());
             present_ms = since(present_start);
+            const auto presented = Clock::now();
+            if (last_present != Clock::time_point{}) {
+                const double gap = std::chrono::duration<double, std::milli>(presented - last_present).count();
+                ++interval_counts[gap < 12 ? 0 : gap < 15 ? 1 : gap < 18.5 ? 2 : gap < 25 ? 3 : gap < 35 ? 4 : 5];
+                interval_sum += gap;
+                interval_sq += gap * gap;
+                ++intervals;
+            }
+            last_present = presented;
         }
         if (boot.finish_tick && tick >= boot.finish_tick) {
             if (const char* dump = std::getenv("FSR_LOCAL_DUMP"); dump && *dump && !canvas.empty()) {
@@ -508,6 +545,23 @@ int run_session(const gbarecomp::GbaNetplayLaunch& launch, const gbarecomp::GbaN
             const double ms = std::chrono::duration<double, std::milli>(Clock::now() - work_start).count();
             timing.add(ms, emu_ms, draw_ms, present_ms);
             all_timing.add(ms, emu_ms, draw_ms, present_ms);
+            const std::uint64_t faults = process_page_faults();
+            if (ms > kSlowFrameMs && slow_listed < kSlowFramesListed) {
+                std::string where;
+                for (unsigned id = 0; id < players; ++id) {
+                    const std::uint8_t* iw = session.machine(id).bus.iwram_ptr();
+                    char part[64];
+                    std::snprintf(part, sizeof(part), " P%u mode=%u state=%u stage=%u floor=%u", id + 1,
+                                  iw[0x6D10], iw[0x5050], iw[0x6C87], iw[0x6C84]);
+                    where += part;
+                }
+                log.line("slow frame %u: %.1f ms (events %.1f, logging %.1f, emulation %.1f, audio %.1f, "
+                         "saving %.1f, drawing %.1f, presenting %.1f), page faults +%llu;%s",
+                         tick, ms, events_ms, log_ms, emu_ms, audio_ms, save_ms, draw_ms, present_ms,
+                         static_cast<unsigned long long>(faults - faults_before), where.c_str());
+                if (++slow_listed == kSlowFramesListed) log.line("further slow frames are not listed");
+            }
+            faults_before = faults;
             if (timing.frames == 600) {
                 report(("frames " + std::to_string(tick - 599) + "-" + std::to_string(tick)).c_str(), timing);
                 timing = {};
@@ -533,6 +587,14 @@ int run_session(const gbarecomp::GbaNetplayLaunch& launch, const gbarecomp::GbaN
     }
     merge(unsaved);
     report("whole session", all_timing);
+    if (intervals) {
+        const double mean = interval_sum / intervals;
+        const double sd = std::sqrt(std::max(0.0, interval_sq / intervals - mean * mean));
+        log.line("time between presents: %.2f ms average, %.2f ms standard deviation; <12 ms %u, 12-15 %u, "
+                 "15-18.5 %u, 18.5-25 %u, 25-35 %u, >=35 %u",
+                 mean, sd, interval_counts[0], interval_counts[1], interval_counts[2], interval_counts[3],
+                 interval_counts[4], interval_counts[5]);
+    }
     log.line("session ended at frame %u", tick);
     return 0;
 }
