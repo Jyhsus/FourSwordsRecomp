@@ -25,6 +25,18 @@ Goals and design: `docs/DESIGN.md`. Milestones, pending and unverified items: `P
 ## Commits
 Conventional commit types are required (`feat`, `fix`, `docs`, `chore`, `test`, `refactor`, `perf`, `build`), as in `git log`: `fix(wide): ...`.
 
+## Agent delegation
+- Work directly by default for routine tasks, known paths, simple searches and files the main agent will edit.
+- Delegate to `fsr-scout` when broad exploration, verbose evidence collection or independent research would unnecessarily expand the main context.
+- Use `fsr-reviewer` for significant changes, high-risk modifications or important agent instructions. Skip trivial edits unless explicitly requested.
+- Consult `fsr-specialist` for contradictory evidence, repeated failed attempts, complex root-cause analysis or difficult-to-reverse decisions. Do not require failed attempts first for a high-risk or complex decision.
+- Ask the maintainer before invoking `fsr-specialist` on your own initiative; no need if the maintainer already asked for it.
+- Delegate one well-defined objective at a time. Include scope, acceptance criteria, relevant evidence, known facts, discarded approaches and expected output.
+- Do not repeat a delegated investigation without a concrete reason. Verify critical findings or read the relevant files when implementation requires it.
+- Execution, builds, tests, Git operations and file edits stay with the main agent under existing permissions.
+- If a subagent hits its turn limit, evaluate the partial result first. Do not auto-retry, resume repeatedly or escalate to another model.
+- Do not run every agent as a routine pipeline.
+
 ## Windows
 The game builds and runs with MSYS2 MinGW64 + SDL2 + Ninja; `C:\msys64\mingw64\bin` must be first on PATH (also at run time; it is not on the Windows PATH, and Git's ucrt64 DLLs are incompatible). Start the game with `tools\play.cmd`. `gba_recompile` is built with MSVC. Python: `C:\msys64\mingw64\bin\python.exe`.
 
