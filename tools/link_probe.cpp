@@ -5,6 +5,7 @@
 //       --save0 A.sav --save1 B.sav [--save2 .. --save3 ..]
 //       [--slot 1-3] [--inputs FILE] [--shots F,F,..] [--trace K]
 //       [--load PREFIX.state] [--wide W [--room 1] [--no-raster 1]] [--dump 1] [--oam-log F] [--map-log F] [--poke F:ADDR:BYTE,...]
+//       [--states F,F,..] [--start F]
 //
 // Every machine runs the same generated code and the same fs_boot hooks as
 // the game executable; --slot boots every machine into that file of its own
@@ -20,7 +21,10 @@
 // many on-screen tiles differ from the stage buffers the wide view reads.
 // --poke writes a byte to every machine's RAM before frame F (experiments only).
 // --trace K prints the mode bytes and SIO registers of every machine every K
-// frames. At the end it writes PREFIX.state (resume with --load) and each
+// frames. --states F,.. writes PREFIX-fF.state after frame F; resume from one
+// with --load PREFIX-fF.state --start F: frame numbers, inputs, shots and logs
+// then go on from F, so a long session is replayed once and revisited quickly
+// (--frames stays the last frame). At the end it writes PREFIX.state (resume with --load) and each
 // machine's EEPROM to PREFIX-seatN.sav; the input saves are only read.
 
 #include <array>
@@ -94,7 +98,8 @@ struct Args {
     unsigned map_from = 0;   // 0 = no map log
     std::vector<std::array<std::uint32_t, 3>> pokes;   // frame, address, byte
     int slot = -1;
-    std::set<unsigned> shots;
+    std::set<unsigned> shots, states;
+    unsigned start = 0;      // frames already run by the --load state
 };
 
 Args parse(int argc, char** argv) {
@@ -139,6 +144,12 @@ Args parse(int argc, char** argv) {
             std::istringstream s(v);
             std::string f;
             while (std::getline(s, f, ',')) a.shots.insert(std::stoul(f));
+        } else if (k == "--states") {
+            std::istringstream s(v);
+            std::string f;
+            while (std::getline(s, f, ',')) a.states.insert(std::stoul(f));
+        } else if (k == "--start") {
+            a.start = std::stoul(v);
         } else throw std::runtime_error("unknown option " + k);
     }
     while (!a.saves.empty() && a.saves.back().empty()) a.saves.pop_back();
@@ -244,7 +255,8 @@ int main(int argc, char** argv) {
             throw std::runtime_error("cannot load " + a.load + ": " + error);
 
         const auto inputs = read_inputs(a, players);
-        for (unsigned frame = 0; frame < a.frames; ++frame) {
+        if (a.start && a.load.empty()) throw std::runtime_error("--start needs --load");
+        for (unsigned frame = a.start; frame < a.frames; ++frame) {
             // Experiments only: the same byte written to every machine's RAM
             // before the frame runs, so the linked consoles stay in step.
             for (const auto& poke : a.pokes) {
@@ -295,7 +307,10 @@ int main(int argc, char** argv) {
                              << ' ' << w(io + 0x40) << ' ' << w(io + 0x44) << ' ' << w(io + 0x42) << ' '
                              << w(io + 0x46);
                     // Last two fields: stage (0x03006C87) and floor (0x03006C84).
-                    logs[id] << std::dec << ' ' << int(iw[0x6C87]) << ' ' << int(iw[0x6C84]) << '\n';
+                    logs[id] << std::dec << ' ' << int(iw[0x6C87]) << ' ' << int(iw[0x6C84]);
+                    // With --wide: the HUD groups and where they went (fs_wide.h).
+                    if (a.wide) logs[id] << ' ' << fsr::wide_hud_groups(bus);
+                    logs[id] << '\n';
                 }
             }
             if (a.oam_from && frame + 1 >= a.oam_from) {
@@ -319,6 +334,10 @@ int main(int argc, char** argv) {
                 }
             }
             const unsigned shown = frame + 1;
+            if (a.states.count(shown)) {
+                const auto state = session.save_state();
+                write_file(a.out + "-f" + std::to_string(shown) + ".state", state.data(), state.size());
+            }
             if (a.trace && shown % a.trace == 0) {
                 std::printf("frame=%u", shown);
                 for (unsigned id = 0; id < players; ++id) {
