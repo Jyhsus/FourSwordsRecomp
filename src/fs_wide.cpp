@@ -114,6 +114,7 @@ struct HudState {
     bool active = false;                                   // BG0 is the plain HUD layer
     bool bands = false;                                    // this frame is shown 3:2 with bands
     std::array<std::uint8_t, kRows * kColumns> kind{};     // per BG0 cell (classify_hud)
+    std::array<bool, kRows * kColumns> used{};             // the cells it classified (diagnostics)
 };
 std::array<HudState, 4> g_hud;
 
@@ -172,10 +173,14 @@ int hud_reason(const gba::GbaBus* bus) {
 // inside. Only the top four and bottom five rows hold HUD groups.
 void classify_hud(const gba::GbaBus* bus, HudState& state) {
     state.kind.fill(kNative);
+    state.used.fill(false);
     const std::uint8_t* io = bus->io().raw();
     state.active = !(u16(io + 0x08) & 0xC000) && !(u16(io + 0x10) & 0x1FF) && !(u16(io + 0x12) & 0x1FF);
     if (!state.active) return;   // BG0 is not the plain 256x256 HUD layer: leave it alone
     const std::uint8_t* map = bg0_map(bus);
+    for (int i = 0; i < kRows * kColumns; ++i) {
+        state.used[i] = u16(map + ((i / kColumns) * 32 + i % kColumns) * 2) != 0;
+    }
     for (int ty = 0; ty < kRows; ++ty) {
         const bool top = ty < kHudTopRows, bottom = ty >= kHudBottomBand;
         if (!top && !bottom) continue;
@@ -185,11 +190,31 @@ void classify_hud(const gba::GbaBus* bus, HudState& state) {
             for (int next = tx + 1; next < kColumns && next <= end + 2; ++next) {
                 if (u16(map + (ty * 32 + next) * 2)) end = next;
             }
-            std::uint8_t kind = kNative;
-            if (top && tx <= 3 && end < kHudLeftEnd / 8) kind = kLeft;
-            else if (top && tx >= 8 && end < kHudRightStart / 8) kind = kCentre;
-            else if (tx >= (top ? 22 : 20) && end >= 26) kind = kRight;
+            const auto kind_of = [top](int first, int last) -> std::uint8_t {
+                if (top && first <= 3 && last < kHudLeftEnd / 8) return kLeft;
+                if (top && first >= 8 && last < kHudRightStart / 8) return kCentre;
+                if (first >= (top ? 22 : 20) && last >= 26) return kRight;
+                return kNative;
+            };
+            std::uint8_t kind = kind_of(tx, end);
             for (int c = tx; c <= end; ++c) state.kind[ty * kColumns + c] = kind;
+            if (kind == kNative) {
+                // A one-cell gap joined a HUD group to something else (the
+                // boss floor's one-line hint ends one cell before the rupee
+                // counter, 24 Nov session): split at a gap and move the end
+                // piece that is a HUD group on its own; the rest stays native.
+                const auto empty = [map, ty](int c) { return !u16(map + (ty * 32 + c) * 2); };
+                for (int gap = tx + 1; gap < end; ++gap) {
+                    if (!empty(gap) || kind_of(gap + 1, end) != kRight) continue;
+                    for (int c = gap + 1; c <= end; ++c) state.kind[ty * kColumns + c] = kRight;
+                    break;
+                }
+                for (int gap = end - 1; gap > tx; --gap) {
+                    if (!empty(gap) || kind_of(tx, gap - 1) != kLeft) continue;
+                    for (int c = tx; c < gap; ++c) state.kind[ty * kColumns + c] = kLeft;
+                    break;
+                }
+            }
             tx = end + 1;
         }
     }
@@ -359,6 +384,36 @@ int wide_screen_mismatches(const gba::GbaBus& bus, int bg) {
 
 int wide_hud_reason(const gba::GbaBus& bus) {
     return hud_reason(&bus);
+}
+
+std::string wide_hud_groups(const gba::GbaBus& bus) {
+    std::string out;
+    for (const HudState& state : g_hud) {
+        if (state.bus != &bus) continue;
+        if (!state.active) return "-";
+        // The cells as classify_hud saw them at the frame's first line, which
+        // is the map the frame was drawn with (the probe logs after VBlank).
+        const auto used = [&state](int ty, int tx) { return state.used[ty * kColumns + tx]; };
+        static constexpr char kName[] = {'N', 'L', 'C', 'R'};
+        for (int ty = 0; ty < kRows; ++ty) {
+            for (int tx = 0; tx < kColumns;) {
+                if (!used(ty, tx)) { ++tx; continue; }
+                const std::uint8_t kind = state.kind[ty * kColumns + tx];
+                int end = tx;
+                while (end + 1 < kColumns && state.kind[ty * kColumns + end + 1] == kind &&
+                       (used(ty, end + 1) ||
+                        (end + 2 < kColumns && used(ty, end + 2) &&
+                         state.kind[ty * kColumns + end + 2] == kind))) {
+                    ++end;
+                }
+                if (!out.empty()) out += ',';
+                out += std::to_string(ty) + ':' + std::to_string(tx) + '-' + std::to_string(end) + kName[kind];
+                tx = end + 1;
+            }
+        }
+        return out.empty() ? "0" : out;
+    }
+    return "?";
 }
 
 bool wide_bands(const gba::GbaBus& bus) {

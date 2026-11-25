@@ -1072,3 +1072,33 @@ filled: `fsr::wide_bands()` is true when the wide view itself decided the
 frame is not a stage; black that comes from the game (the area-entry
 effect's WINOUT = 0) stays black. Checked in the executable at the lobby,
 stage select, area entry and play.
+
+**The rupee counter beside a hint (24 Nov 2026, second manual test).** The
+three-player session of 24 Nov (66,617 frames) was replayed in
+`FourSwordsLinkProbe` and every frame's HUD placement logged (`--map-log`
+with `--wide` now ends with `fsr::wide_hud_groups()`: each run of BG0 cells
+and where it went, taken from the map the frame was drawn with). Only one
+group ever changed place during play: the rupee counter. The one-line hints
+of the forest stage ("Pull them both to reveal the ...", a three-row box at
+columns 0-21) end one cell before the counter (columns 23-28), the one-cell
+gap joined them, and the counter went to the native columns with the box,
+22 columns inside the picture, for about 5 s at each of 12 hints (3,789
+frames per player). A run that is not a HUD group as a whole is now split at
+a gap when the piece at its end is one on its own; the box stays with the
+picture and the counter at the edge. After the fix the whole session has no
+HUD group changing place while it stays on screen, except two frames on
+player 2 where a large box opening and closing touches the "+20" popup
+without a gap (13,700 and 58,614). Evidence image:
+`build/diag/playtest-fixes/hud-hint-before-after.png` (3:2, 16:9 before,
+16:9 after, frame 52,410).
+
+**The area-entry iris in 16:9 (24 Nov 2026).** The triangle iris (WIN0
+rewritten every scanline, WINOUT = 0, frames 2,040-2,123 of that session) is
+drawn exactly as in 3:2 inside the native 240 columns. In the margins, the
+engine continues a scanline only when all of its 240 pixels have the same
+window control (`gba_ppu.cpp`, the rule for providers without authored
+margins), so while the triangle is wider than the screen the margins open
+row by row in rectangles instead of following its edges, for about the last
+30 frames. Alternatives, not chosen yet: keep the margins black for the whole
+iris; extrapolate each scanline's window edges into the margins (an engine
+change); or keep the current rows.

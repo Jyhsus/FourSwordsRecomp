@@ -1141,3 +1141,35 @@ cierto cuando la propia vista ancha decidió que el frame no es una fase; el
 negro que viene del juego (el efecto de entrada a una zona, con WINOUT = 0)
 sigue negro. Comprobado en el ejecutable en el lobby, la selección de fase,
 la entrada a una zona y el juego.
+
+**El contador de rupias junto a una pista (24 nov 2026, segunda prueba
+manual).** La sesión de tres jugadores del 24 de noviembre (66.617 frames) se
+repitió en `FourSwordsLinkProbe` registrando en cada frame dónde quedaba el
+HUD (`--map-log` con `--wide` termina ahora con `fsr::wide_hud_groups()`:
+cada tramo de casillas de BG0 y adónde fue, tomado del mapa con el que se
+dibujó el frame). Durante el juego solo un grupo cambió de sitio: el
+contador de rupias. Las pistas de una línea de la fase del bosque ("Pull them
+both to reveal the ...", un recuadro de tres filas en las columnas 0-21)
+terminan una casilla antes del contador (columnas 23-28), el hueco de una
+casilla los unía y el contador pasaba a las columnas nativas con el
+recuadro, 22 columnas hacia dentro, unos 5 s en cada una de 12 pistas (3.789
+frames por jugador). Un tramo que en conjunto no es un grupo del HUD se parte
+ahora en un hueco cuando la pieza de su extremo sí lo es por sí sola; el
+recuadro sigue con la imagen y el contador en el borde. Tras el arreglo,
+ningún grupo del HUD cambia de sitio mientras sigue en pantalla en toda la
+sesión, salvo dos frames de J2 en los que un recuadro grande, al abrirse y
+cerrarse, toca sin hueco el aviso "+20" (13.700 y 58.614). Imagen:
+`build/diag/playtest-fixes/hud-hint-before-after.png` (3:2, 16:9 antes, 16:9
+después, frame 52.410).
+
+**El iris de entrada a una zona en 16:9 (24 nov 2026).** El iris triangular
+(WIN0 reescrito en cada línea, WINOUT = 0, frames 2.040-2.123 de esa sesión)
+se dibuja exactamente igual que en 3:2 dentro de las 240 columnas nativas.
+En los márgenes, el motor solo prolonga una línea cuando sus 240 píxeles
+tienen el mismo control de ventana (`gba_ppu.cpp`, la regla para los
+proveedores sin márgenes propios), así que mientras el triángulo es más ancho
+que la pantalla los márgenes se abren fila a fila en rectángulos en vez de
+seguir sus bordes, durante los últimos 30 frames más o menos. Alternativas,
+aún sin elegir: dejar los márgenes negros todo el iris; extrapolar a los
+márgenes los bordes de la ventana de cada línea (un cambio del motor); o
+mantener las filas actuales.

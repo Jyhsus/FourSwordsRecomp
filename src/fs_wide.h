@@ -7,6 +7,8 @@
 // stretched or wrapped picture. Nothing is written to the GBA: the game, its
 // collisions and the link cable see the same 240x160 console as always.
 
+#include <string>
+
 #include "multiplayer_view.h"
 
 namespace gba { class GbaBus; }
@@ -33,6 +35,11 @@ int wide_hud_reason(const gba::GbaBus& bus);
 // The window then fills the bands with kWideBandColour instead of black.
 // Black left by the game's own effects (the area-entry window) is not bands.
 bool wide_bands(const gba::GbaBus& bus);
+
+// Diagnostics (FourSwordsLinkProbe --map-log): every run of used BG0 cells
+// as "row:first-lastK", K = where the wide view put it (N native, L left,
+// C centre, R right), comma separated; "-" when BG0 is not the plain HUD.
+std::string wide_hud_groups(const gba::GbaBus& bus);
 
 // The bands' fixed colour (RGB): a dark neutral grey, so a 16:9 view keeps
 // its shape when the game shows a 3:2 screen and does not read as the black
