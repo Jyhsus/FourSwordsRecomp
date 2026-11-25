@@ -1,0 +1,20 @@
+{
+  "permissions": {
+    "ask": [
+      "Bash(git push *)",
+      "Bash(git commit *)",
+      "Bash(git reset *)",
+      "Bash(git clean *)",
+      "Bash(git rebase *)",
+      "Edit(/gbarecomp/src/runtime/generated_bios/**)",
+      "Edit(/saves/**)"
+    ],
+    "deny": [
+      "Edit(/generated/**)",
+      "Read(/gbarecomp/bios/gba_bios.bin)",
+      "Edit(/gbarecomp/bios/gba_bios.bin)",
+      "Read(/roms/**)",
+      "Edit(/roms/**)"
+    ]
+  }
+}
