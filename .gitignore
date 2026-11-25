@@ -24,6 +24,7 @@ generated/*
 # ── Build output ──────────────────────────────────────────────────────
 build/
 build-*/
+!/.claude/skills/build-project/
 out/
 *.obj
 *.o
@@ -50,6 +51,7 @@ diagnostics/
 *.local.toml
 *.local.ini
 keybinds.ini
+.claude/settings.local.json
 .vscode/
 .idea/
 .vs/

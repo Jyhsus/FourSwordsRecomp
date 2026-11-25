@@ -1,67 +1,46 @@
 # CLAUDE.md — FourSwordsRecomp
 
-Context for AI assistants (and humans) continuing this project.
-The maintainer (Jyhsus) writes in Spanish; reply in Spanish. Public docs are English-first with Spanish mirrors (`*.es.md`). Keep both in sync.
-
-## What this is
 Static recompilation of *The Legend of Zelda: Four Swords* from the USA cartridge
 *A Link to the Past & Four Swords* (`AZLE`, SHA-1 `a272055abbbf6c26b0cd54c87395d01699589161`),
-built on GBARecomp (submodule `gbarecomp/`, launcher `recomp-ui/`). Goals and plan: `docs/DESIGN.md`.
+built on GBARecomp (submodule `gbarecomp/`, launcher `recomp-ui/`).
+Goals and design: `docs/DESIGN.md`. Milestones, pending and unverified items: `PROGRESS.md`.
+
+## Language and docs
+- The maintainer (Jyhsus) writes in Spanish; reply in Spanish.
+- Public docs (README, `docs/`, `patches/`, `PROGRESS`) are English-first with Spanish mirrors (`*.es.md`). Keep both in sync.
+- CLAUDE.md and `.claude/skills/` are for agents: English, no mirror.
+- Keep this file short. Put new findings in their home (table below), dated, saying what was verified and what was not. Never drop warnings, unverified results, pending issues or check dates when moving or editing docs. If documents disagree, keep both figures and flag it; do not assume one wins.
 
 ## Hard rules
-- Never commit or distribute the ROM, the BIOS, `generated/` output, DSi dumps, extracted assets or box art. `.gitignore` enforces most of this; check `git status` before committing.
-- Never hand-edit `generated/`. Fix `game.toml`, symbols or `src/` hooks, then regenerate.
-- Engine (gbarecomp) bugs belong upstream; keep game-specific code in this repo.
+- Never commit or distribute the ROM, the BIOS, `generated/` output, DSi dumps, extracted assets, box art or `.sav` saves. `.gitignore` enforces most of this; check `git status` before committing.
+- Never hand-edit `generated/`. Fix `game.toml`, symbols or `src/` hooks, then regenerate (`tools/regen.ps1` / `tools/regen.sh`).
+- Engine (gbarecomp) bugs belong upstream; keep game-specific code in this repo. Local engine changes are patches in `patches/gbarecomp/` (`git -C gbarecomp apply`; CMake checks). Never commit inside `gbarecomp/`.
+- `git status` showing `m gbarecomp` is expected (patches; the BIOS step rewrites `src/runtime/generated_bios/`). Never commit it.
+- Edit saves only through `src/fs_save.cpp`. Test on a copy via `--save-path`, never on `saves/`.
+- Local player N = machine N-1 = cable port N-1 = the game's P<N> = view N = plan entry N-1 (file, controller). Never reorder views or inputs after the plan.
+- Reference engine: *The Minish Cap* (same studio). Use `zeldaret/tmc` names and MinishCapRecomp patterns; import names/addresses only, never decomp source.
 - License: PolyForm Noncommercial (same as GBARecomp).
 
-## Build (verified 22 Oct 2026 on Linux, headless)
-```sh
-cmake -S gbarecomp -B gbarecomp/build -G Ninja -DCMAKE_BUILD_TYPE=Release
-ninja -C gbarecomp/build gba_recompile
-gbarecomp/build/gba_recompile --bios gbarecomp/bios/gba_bios.bin --config gbarecomp/bios/gba_bios.toml   # once, needs the user's BIOS
-tools/regen.sh                      # ~1 min, 1,537 functions, 32 shards
-cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DGBAGAME_RECOMP_UI=OFF   # OFF = no SDL/launcher
-ninja -C build FourSwordsRecomp
-./build/FourSwordsRecomp --no-window --quiet --frames 900 --dump-png f900.png game.toml
-```
-Windows (verified 22 Oct 2026, windowed): `gba_recompile` with MSVC (VS 2026 Build Tools, generator "Visual Studio 18 2026"); the game with MSYS2 MinGW64 + SDL2 + Ninja (`C:\msys64\mingw64\bin` first on PATH, also at run time). Upstream GBARecomp only supports MinGW for playable exes. Steps in README.
-- The BIOS step rewrites a tracked file in the `gbarecomp` submodule (`src/runtime/generated_bios/`); `git status` shows `m gbarecomp`. Never commit it.
-- Debug loop: `FourSwordsRecomp.exe --no-window --tcp 19890 --save-path <tmp>.sav game.toml`, then line-delimited JSON: `run_frames {n, keyinput}` (KEYINPUT active-low, A=bit0), `read_iwram/read_ewram {addr,len}`, `screenshot`, `savestate_save/load {path}` (Windows path), `quit`. Use a scratch save path so tests don't touch `saves/`.
+## Commits
+Conventional commit types are required (`feat`, `fix`, `docs`, `chore`, `test`, `refactor`, `perf`, `build`), as in `git log`: `fix(wide): ...`.
 
-## Known facts / gotchas
-- Code ends near `0x08138000`; tables and data follow. `aot_scan` stays off: even limited to `0x08000000–0x08140000` it produced ~490k "functions" and ~20 GB RAM.
-- Unbounded ("BX walked") auto jump tables get over-sized and seed ARM junk in data that runs into the `0xFF` padding at `0x0868_0000+`. Symptom: function count jumps from ~33k to ~490k. Fix: `GBARECOMP_JT_REPORT=1` recompile into a scratch dir, then `python tools/audit_jump_tables.py ROM <logs...> > symbols/AZLE_symbols.toml` (the overlay `regen.ps1` loads). Upstream finder bug.
-- `[[jump_table]]` with Thumb pointers needs `entries_mode = "auto"`; `"thumb"` keeps bit 0 and decodes odd PCs.
-- `evicted N host-less call-return entries` / `call-return stack overflow` = code reached through RAM function pointers running in the self-heal bridge (was the m4a sound driver). Check depth with the CPU0 section of a `--dump-state` file; a healthy run stays near 0. Seed the pointer table instead of ignoring the warning.
-- Long runs: `GBARECOMP_INPUT_REPLAY=<file>` (lines `frame,0xKEYINPUT`, value held until the next line) with `--frames N --dump-png --dump-state`. TCP `run_frames` stepping exposes bridge bugs that free running doesn't.
-- Self-heal bridge entered at a mid-function return address can run away (200M instructions, pc in BIOS IntrWait `0x348`) and abort. Cure: make that code static (seed the pointer table). Also seen: self-heal gcc overlays fail (`g_runtime_resume_pc` undeclared) and windowed `--frames` runs end with `terminate called without an active exception`. Both upstream.
-- Game modes: byte `0x03006D10`, table `0x0842731C`, setter `set_game_mode` `0x0800B5EC`; 8 = file select, 6 = CHOOSE A GAME, 9 = Four Swords, 13 = LttP. `start_four_swords` = `0x08030E0C`. Details in docs/DESIGN.md §2.
-- Save: 64 Kbit EEPROM (`EEPROM_V122` @ `0x08427298`). The `.sav` stores each 8-byte block reversed. Slots, checksum, name charset (6 chars, cp1252) and the system block at `0x03000000` (`[4]` = current file): docs/DESIGN.md §8.1. Edit saves only through `src/fs_save.cpp` (`build/fs_save_test.exe` checks it). `--slot 1-3` boots a file directly. Test on a copied `.sav` via `--save-path`.
-- With one GBA the Four Swords lobby cannot be left (no key works). The quit step is `0x08030018` (lobby step 7, `0x03000BFC` = 7 in mode 9 sub 2 reproduces it); `src/fs_boot.cpp` ends a `--slot` session there via `gbarecomp::request_quit()`. To test the windowed loop, put that savestate in `--state-dir <dir>` as `state1` and press F1 in game.
-- Windowed flow (`src/main.cpp`): launcher → file screen (`src/fs_slots_ui.cpp`, own ImGui window in `game_launcher_ui`) → `run_game()`; quitting Four Swords (`fsr::quit_to_menu()`) loops back to the launcher, so `run_game()` runs more than once per process. Skipped for headless/scripted runs, explicit `--slot`/`--rom` and netplay.
-- `gbarecomp` carries local patches from `patches/gbarecomp/` (apply with `git -C gbarecomp apply`, never commit inside the submodule; CMake checks). Each is written as the upstream PR.
-- Boot reaches the Nintendo/Capcom logos (frame ~300) and "CHOOSE A FILE" (frame ~900). The A Link to the Past / Four Swords choice comes **after** file select.
-- Interpreter misses are logged to `recomp_master_misses_AZLE.toml.frag`; review them before merging into `game.toml`.
-- Linked sessions (`GbaMultiplayerSession`, netplay) have **no interpreter fallback**: a missing native entry aborts with `multiplayer native dispatch entry is missing: <addr>`. Find RAM code sources by dumping RAM and searching the ROM (then `[[code_copy]]`); for Thumb code reached through pointers in the ROM rerun `tools/scan_code_pointers.ps1` after `tools/regen.ps1` (writes `symbols/AZLE_data_pointers.toml`: PUSH-LR functions from any pointer, and pointer tables inside the code area as `[[jump_table]]`, e.g. `0x08009A08`) and regenerate. In a `.ps1` with a `$Rom` parameter never assign to `$rom` (same variable, typed `[string]`: the script hangs). New over-sized auto jump tables: `GBARECOMP_JT_REPORT=1` + `tools/audit_jump_tables.py` (Python: `C:\msys64\mingw64\bin\python.exe`), append only the new tables to `symbols/AZLE_symbols.toml`.
-- Local multiplayer reuses `run_game()`'s netplay hand-off: `fsr::make_local_launch()` returns a `GbaNetplayLaunch` with `enabled` and its own `run`, so the runtime resolves ROM/BIOS/window settings first. Test headless-ish with `--local ... --frames N --fullscreen=0 --volume 0 --save-path <tmp>` plus `FSR_LOCAL_INPUTS` (probe script), `FSR_LOCAL_DUMP` (BMP) and `GBARECOMP_FORCE_DRAWABLE=WxH` (layout at that window size). Each GBA boots the file in its own system block (`fsr::kBootSavedFile`).
-- Local player N = machine N-1 = cable port N-1 = the game's P<N> = view N = plan entry N-1 (file, controller). Never reorder views or inputs after the plan. Controllers come from `fsr::local_pads()` (player light, then connection order), not SDL device order; `HostWindow`'s own controller is off in local play (patch 0003). No controller was connected on the dev machine: controller order, the "pressed" marker and hot-plug are untested on hardware.
-- A local session leaves `fsr_local_last.{log,inputs,sav}` next to the exe (overwritten each session; don't run sessions in parallel if you need them) and `build/sessions/YYYY-MM-DD_HH-MM-SS/` (session.log, inputs.inputs, start.sav, config.ini, keybinds.ini; never overwritten). The log starts with the commit/engine patches (`cmake/fsr_revision.cmake`, also `--version`), and every 600 frames gives each GBA's mode/state/stage/floor/camera and the frame time split into emulation/drawing/presenting. An error in the runner is logged there and shown in a dialog. The 4-player exit testers reported is not reproduced and not fixed.
-- Local pacing uses `gbarecomp::FramePacer` (16.78 +- 0.75 ms between presents); the old `sleep_until` gave +-4.5 ms. `main()` calls `fsr::prefetch_own_image()` (`src/fs_sysinfo.cpp`, PrefetchVirtualMemory): the ~111 MB of code on the dev machine's HDD otherwise stalled first-time frames up to 0.7 s. Reproduce cold starts with `xcopy /J` of the exe. The session log and input record are written by their own thread (`SessionLog` in `src/fs_local.cpp`): a flushed line on the frame thread cost 20-140 ms on the HDD. Slow frames (>33.5 ms) are listed in the session log with a per-part breakdown and page faults. Link's shadow is drawn by the game on alternate frames (OAM) - original, keep it.
-- A recorded local session replays exactly in the probe (`--save0 start.sav --save1 guest --inputs inputs.inputs`) and in the exe (`FSR_LOCAL_INPUTS`, `--save-path` copy). The item menu is held L (WIN1, does not pause). Commit messages must use conventional types (a pro-workflow hook rejects others).
-- Start the game with `tools\play.cmd` (puts `C:\msys64\mingw64\bin` first on PATH; MinGW64 is not on the Windows PATH, and Git's ucrt64 DLLs are incompatible). Playtest guide: docs/PLAYTEST.md (+ .es.md).
-- Controllers: `src/fs_pads.{h,cpp}` (`PadSeats`, `local_pads()`), tested with SDL virtual controllers in `tests/fs_pads_test.cpp` (`ctest -R fs_pads`; real drivers off). A pad connected at start but unassigned is never handed out; reconnection matches light, then model, then first waiting place.
-- Scripted multi-GBA checks: `tools/make_local_inputs.py identity|soak N` → `tests/inputs/`. In the linked lobby, B pressed twice by any player quits to the launcher (lobby step 7). No automated run has made the game write its EEPROM (not even after a boss); the save merge with real writes is only testable by playing. Forcing `0x03005050`=10 outside stage play (e.g. on stage select after a game over) jumps into data (`02016d90 ARM`): a test-device artifact, not a game bug.
-- Performance (dev machine, 1080p): emulation dominates; four GBAs ~11 ms/frame in 3:2. In 16:9 the GBA's own PPU stops drawing (`set_rasterization_enabled(false)`; memory identical) but the engine's wide compositor still makes four players in 16:9 borderline (~14 ms emulation); the Local page warns.
-- Layout and scaler: `src/fs_layout.h` (`tests/fs_layout_test.cpp`, `ctest -R fs_layout`). The canvas is the window's pixels; local fullscreen is always desktop mode (exclusive mode switched the monitor to 1024x768).
-- Widescreen (experimental, docs/DESIGN.md §11): `--local-view 16:9` / the Local page checkbox. `src/fs_wide.cpp` fills the margin columns of a host-only mirror PPU from the stage's tile buffers in EWRAM (BG1 `0x020031D0`, BG2 `0x02016D90`, 128x128 entries; camera `0x03000470/72`, stage size `0x03000478/7A`). It only reads; the probe's session hash is the same in 3:2 and 16:9. The HUD (BG0 groups plus the priority-0 item icon) is moved to the picture's edges only while BG0 holds nothing but the HUD; with a text box open it keeps the 240-wide placement. The game emits sprites with left edge from about -80 to 303, so OAM X 256-359 is read as positive in the wide view (hardware reads it as off-screen left). Margins are drawn only while the on-screen tiles match the buffers (more than 150 differing tiles of a layer = black bars, e.g. the 91 black frames between areas); the slide at a stage edge follows the BG2 scroll register, one frame behind the camera variable. Stage state byte `0x03005050` in mode 2: 8 enter area, 9 play, 10 leave, 1-7 load, 11 fallen (`--map-log F` in the probe). Checked on both floors of the tutorial (the recorded session never leaves it) and on all three floors of stages 0-3, boss rooms included (not the fights); a boss fight and a stage finished by play are unobserved. To move to the next floor in the probe: `--poke F:0x03005050:10` during play (the game then loads it by its own path). Mode 4 (fairy fountain after a boss) stays 3:2: its room is one screen wide. Stage select is mode 5; `0x03006C81` = chosen stage 0-3, `0x03006C82` non-zero forces the tutorial (stage 4, `0x03006C87`). To load another stage in the probe on a new file: `--poke` `0x03006C82`=0 and `0x03006C81`=N on every frame 1945-2110 (test device only). The probe replays a recorded local session headless (`--save1 guest`, `--inputs fsr_local_last.inputs`) and logs sprites per frame with `--oam-log F`. `FourSwordsLinkProbe --wide 284 --room 1 --dump 1` is the tool for it. Long sessions: one pass with `--states F,..` writes `PREFIX-fF.state`; then `--load PREFIX-fF.state --start F` resumes at F with the session's inputs (same final hash). A local session's GBAs boot their file directly, so replays need `--slot 1` (without it the probe sits on file select and diverges). With `--wide`, `--map-log` ends with the HUD groups (`fsr::wide_hud_groups()`).
-- `game.toml` `[video] screen = "raw"` (the PPU's exact colours) since 16 Nov 2026; it was `"frontlit"`, a GBA SP panel model that desaturates on purpose. The launcher overrides it with its own Screen setting. Not shown to be the cause of the testers' washed-colours report.
-- Netplay: `src/main.cpp` sets `max_players = 4`. The upstream online runner never writes the `.sav` (only paired checkpoints). Every peer runs all virtual GBAs, and only inputs cross the network.
-- Reference engine: *The Minish Cap* (same studio). Use `zeldaret/tmc` names and MinishCapRecomp patterns; import names/addresses only, never decomp source.
+## Windows
+The game builds and runs with MSYS2 MinGW64 + SDL2 + Ninja; `C:\msys64\mingw64\bin` must be first on PATH (also at run time; it is not on the Windows PATH, and Git's ucrt64 DLLs are incompatible). Start the game with `tools\play.cmd`. `gba_recompile` is built with MSVC. Python: `C:\msys64\mingw64\bin\python.exe`.
 
-## Milestones (see docs/DESIGN.md)
-- M1 boot to file select ✅
-- **M2 ✅** (launcher toggle pending): `src/fs_boot.cpp` hooks the mode-6 handler `0x0803074C` (not `set_game_mode`, which misses the soft-reset inline entry at `0x0803072C`) and turns it into a tail call to `start_four_swords`. With one GBA it reaches the lobby ("Linking with other systems…", mode 9 sub 2) and is stable to frame 40000. Details in docs/DESIGN.md §2.
-- **Before M3, docs/DESIGN.md §8 in order:** 8.1 saves in 3 slots (✅ save model, `--slot`, launcher file screen, quit back to the launcher; `request_quit()` patch still to send upstream), 8.2 no BIOS (HLE), 8.3 Ship of Harkinian-style UI.
-- **M3 ✅ (one process, docs/DESIGN.md §9):** two GBAs on one `GbaLinkHub` cable boot cold, link and enter a Four Swords game together (`FourSwordsLinkProbe` + `tests/m3_two_gba.inputs`). `0x03006D18` was m4a `SoundMainRAM`, not link code. Needs local patch 0002 (cable transfer time 5,243 cycles for 2–4 GBAs; root cause of the timing gap still open). Pending: netplay path (2 processes / launcher).
-- **Local split-screen multiplayer ✅ (docs/DESIGN.md §10):** file screen → Multiplayer → Local, or `--local 2,guest,...` (`--local-scale fit|integer`, `--local-keyboard N|none`). `src/fs_local.cpp` runs 2–4 GBAs in one resizable window (2: side by side; 3: two on top, one bottom centre; 4: 2×2), each player with a chosen controller, player 1's audio. Saves merge by file into the one `.sav` (`Image::copy_file`); a file is played once at most, extra players are guests (never saved). Still unchecked: merge with real game writes, the clicked-through UI flow, real controllers, a 4-person game, and the testers' graphics reports (washed colours, flicker) against a reference.
-- Next: M4 Anniversary-style single player → M5 online 2–4 → M6 DSi content research (may be impossible).
+## Where things live
+| Need | Go to |
+|---|---|
+| Build, regenerate, symbols, jump tables, `play.cmd` (manual) | skill `build-project` |
+| TCP debug loop, input replay, bridge/call-return problems, missing native entries, local-session replays, tests | skill `debug-project` |
+| 16:9 wide view, stage buffers, probe replays | skill `widescreen-debug` (read before touching `src/fs_wide.cpp`) |
+| Boot hook and game modes (mode byte `0x03006D10`, `start_four_swords` `0x08030E0C`) | `docs/DESIGN.md` §2 |
+| Save layout, slots, name charset, quit path, launcher file screen | `docs/DESIGN.md` §8.1 |
+| Two GBAs on one cable (M3), cable timing patch | `docs/DESIGN.md` §9 |
+| Local multiplayer: layout and scaler (`src/fs_layout.h`), controllers (`src/fs_pads.*`), saves merge, performance, graphics reports | `docs/DESIGN.md` §10 |
+| Widescreen findings | `docs/DESIGN.md` §11 |
+| Netplay (`max_players = 4`; the upstream online runner never writes the `.sav`) | `docs/DESIGN.md` §4, §10 |
+| Playtest procedure and evidence | `docs/PLAYTEST.md` (+ `.es.md`) |
+| Engine patches and upstream status | `patches/README.md` |
+| Milestones M1–M6, pending, unverified, discrepancies | `PROGRESS.md` |
+
+Next milestones: M4 Anniversary-style single player, M5 online 2–4, M6 DSi content research (may be impossible).
