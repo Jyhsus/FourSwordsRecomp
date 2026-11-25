@@ -4,6 +4,8 @@
 
 #include <algorithm>
 #include <chrono>
+#include <condition_variable>
+#include <deque>
 #include <cmath>
 #include <climits>
 #include <cstdarg>
@@ -13,6 +15,7 @@
 #include <ctime>
 #include <fstream>
 #include <iomanip>
+#include <mutex>
 #include <optional>
 #include <sstream>
 #include <span>
@@ -30,7 +33,6 @@
 #if defined(FSR_WIDE_VIEW)
 #include "fs_wide.h"
 #endif
-#include "host_platform.h"
 #include "host_platform.h"
 #include "host_window.h"
 #include "multiplayer_launch.h"
@@ -54,6 +56,12 @@ LocalPlan g_plan;
 //   fsr_local_last.inputs  every player's buttons, in FSR_LOCAL_INPUTS format
 //   fsr_local_last.sav     the shared save as it was when the session began
 // Each session overwrites the previous one's files.
+//
+// Nothing here writes to disk on the frame loop's thread: lines and input
+// rows are queued and a writer thread appends and flushes them. On the
+// project's 5,400 rpm disk a flushed line every 600 frames took 20-140 ms
+// while another program was writing to the same disk (24 Nov 2026 session),
+// a visible stall each time. The destructor writes whatever is still queued.
 class SessionLog {
 public:
     // Every session writes its evidence twice: fsr_local_last.* next to the
@@ -81,7 +89,20 @@ public:
         } else {
             folder_.clear();
         }
+        writer_ = std::thread([this] { write_queued(); });
     }
+
+    ~SessionLog() {
+        {
+            std::lock_guard<std::mutex> lock(mutex_);
+            stop_ = true;
+        }
+        wake_.notify_one();
+        if (writer_.joinable()) writer_.join();
+    }
+
+    SessionLog(const SessionLog&) = delete;
+    SessionLog& operator=(const SessionLog&) = delete;
 
     const std::filesystem::path& folder() const { return folder_; }
 
@@ -91,11 +112,7 @@ public:
         va_start(args, format);
         std::vsnprintf(text, sizeof(text), format, args);
         va_end(args);
-        std::fprintf(stderr, "[fsr] local: %s\n", text);
-        std::fflush(stderr);
-        for (auto& log : log_) {
-            if (log) log << text << std::endl;
-        }
+        queue(kLine, text);
     }
 
     void keep_save(const std::filesystem::path& save) {
@@ -109,32 +126,87 @@ public:
     }
 
     void open_inputs(unsigned players) {
-        inputs_[0].open(directory_ / "fsr_local_last.inputs", std::ios::trunc);
-        if (!folder_.empty()) inputs_[1].open(folder_ / "inputs.inputs", std::ios::trunc);
-        for (auto& inputs : inputs_) {
-            if (!inputs) continue;
-            inputs << "# FourSwordsRecomp local multiplayer, " << players
-                   << " players: frame, then each player's buttons (pressed = 1).\n"
-                   << "# Replay: FSR_LOCAL_INPUTS=<this file> with the same --local list and\n"
-                   << "# --save-path <a copy of the session's start save>.\n";
+        // Opened here; from now on only the writer thread touches them.
+        {
+            std::lock_guard<std::mutex> lock(mutex_);
+            inputs_[0].open(directory_ / "fsr_local_last.inputs", std::ios::trunc);
+            if (!folder_.empty()) inputs_[1].open(folder_ / "inputs.inputs", std::ios::trunc);
         }
+        queue(kInputs, "# FourSwordsRecomp local multiplayer, " + std::to_string(players) +
+                           " players: frame, then each player's buttons (pressed = 1).\n"
+                           "# Replay: FSR_LOCAL_INPUTS=<this file> with the same --local list and\n"
+                           "# --save-path <a copy of the session's start save>.");
     }
 
     void inputs(std::uint32_t tick, std::span<const std::uint16_t> buttons) {
         if (tick && std::equal(buttons.begin(), buttons.end(), last_.begin())) return;
         for (std::size_t i = 0; i < buttons.size(); ++i) last_[i] = buttons[i];
-        for (auto& inputs : inputs_) {
-            if (!inputs) continue;
-            inputs << tick;
-            for (std::size_t i = 0; i < buttons.size(); ++i) inputs << ' ' << buttons[i];
-            inputs << std::endl;
-        }
+        std::string row = std::to_string(tick);
+        for (std::size_t i = 0; i < buttons.size(); ++i) row += ' ' + std::to_string(buttons[i]);
+        queue(kInputs, std::move(row));
     }
 
 private:
+    enum Target { kLine, kInputs };
+    struct Item {
+        Target target;
+        std::string text;
+    };
+
+    void queue(Target target, std::string text) {
+        {
+            std::lock_guard<std::mutex> lock(mutex_);
+            pending_.push_back({target, std::move(text)});
+        }
+        wake_.notify_one();
+    }
+
+    // The writer thread: takes everything queued, writes it, flushes once.
+    void write_queued() {
+        std::deque<Item> batch;
+        for (;;) {
+            bool stop = false;
+            {
+                std::unique_lock<std::mutex> lock(mutex_);
+                wake_.wait(lock, [this] { return stop_ || !pending_.empty(); });
+                batch.swap(pending_);
+                stop = stop_ && batch.empty();
+            }
+            if (stop) return;
+            bool lines = false, rows = false;
+            for (const Item& item : batch) {
+                if (item.target == kLine) {
+                    std::fprintf(stderr, "[fsr] local: %s\n", item.text.c_str());
+                    for (auto& log : log_) {
+                        if (log) log << item.text << '\n';
+                    }
+                    lines = true;
+                } else {
+                    for (auto& inputs : inputs_) {
+                        if (inputs) inputs << item.text << '\n';
+                    }
+                    rows = true;
+                }
+            }
+            batch.clear();
+            if (lines) {
+                std::fflush(stderr);
+                for (auto& log : log_) log.flush();
+            }
+            if (rows) {
+                for (auto& inputs : inputs_) inputs.flush();
+            }
+        }
+    }
+
     std::filesystem::path directory_, folder_;
     std::array<std::ofstream, 2> log_, inputs_;
     std::array<std::uint16_t, kLocalMaxPlayers> last_{};
+    std::mutex mutex_;
+    std::condition_variable wake_;
+    std::deque<Item> pending_;
+    bool stop_ = false;
+    std::thread writer_;   // last: started once everything above exists
 };
 
 // Testing aid: FSR_LOCAL_INPUTS names a FourSwordsLinkProbe input script

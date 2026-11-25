@@ -819,6 +819,28 @@ compartidas por 3:2 y 16:9:
   plano al arrancar (`PrefetchVirtualMemory`): la misma ejecución en frío
   tiene 1 frame lento (el primero), con un peor caso de 42 ms.
 
+**El registro de la sesión (24 nov 2026, segunda prueba manual).** Una
+sesión de tres jugadores en 16:9 por Parsec se paraba una vez cada 600
+frames: la línea de escena del registro tardaba entonces 20-140 ms en
+"logging" (se vaciaba con `std::endl` en el hilo del bucle de frames, a dos
+archivos del disco de 5.400 rpm, mientras OBS grababa en el mismo disco).
+El registro y las entradas se ponen ahora en cola y los escribe un hilo
+propio. Repitiendo los primeros 12.000 frames de esa sesión (3 jugadores,
+16:9, mismas entradas, sin Parsec), alternando el ejecutable viejo y el
+nuevo: "logging" como mucho 20,6 y 22,7 ms antes, 0,0 después; parones
+(35 ms o más entre presentaciones) 19 y 28 antes, 3 y 1 después. El archivo
+de entradas que escribe es idéntico byte a byte al de la sesión.
+
+La sesión entera repetida sin Parsec ni OBS (ejecutable viejo): 13,66 ms de
+trabajo por frame de media (emulación 11,63), 596 de 66.616 frames por
+encima de 16,74 ms y 105 parones, más o menos uno cada 600 frames (la
+línea del registro). La
+sesión original, con Parsec y OBS en el mismo PC: 15,46 ms (emulación
+12,73), 17.128 tardíos y 112 parones. Así que tres GBA en 16:9 caben en un
+frame en este PC, con unos 2-3 ms de margen en una fase; los dos programas
+juntos cuestan unos 1,8 ms por frame y retrasaron una cuarta parte de los
+frames. No se midió por separado cuánto cuesta cada uno.
+
 Sin explicar: un frame de 150 ms en una ejecución con caché, sin ninguna
 parte medida lenta; no volvió a ocurrir. La sombra de Link, de la que se
 dijo que parpadeaba, es del propio juego: su sprite (16×8, tile 769) solo

@@ -773,6 +773,27 @@ caused, and the time between presents. Two causes, both shared by 3:2 and
   (`PrefetchVirtualMemory`): the same cold run has 1 slow frame (the first),
   worst 42 ms.
 
+**The session log (24 Nov 2026, second manual test).** A three-player
+16:9 session over Parsec stalled once every 600 frames: the scene line the
+log writes then took 20-140 ms in "logging" (the line was flushed with
+`std::endl` on the frame loop's thread, to two files on the 5,400 rpm disk,
+while OBS was recording to the same disk). The log and the input record are
+now queued and written by a thread of their own. Replaying that session's
+first 12,000 frames (3 players, 16:9, same inputs, no Parsec), alternating
+old and new executables: "logging" at most 20.6 and 22.7 ms before, 0.0
+after; stalls (present gaps of 35 ms or more) 19 and 28 before, 3 and 1
+after. The inputs file it writes is byte for byte the session's own.
+
+The same whole session replayed without Parsec or OBS (old executable):
+13.66 ms of work per frame on average (emulation 11.63), 596 of 66,616
+frames over 16.74 ms and 105 stalls, about one per 600 frames (the log
+line). The session
+itself, with Parsec and OBS on the same PC: 15.46 ms (emulation 12.73),
+17,128 over and 112 stalls. So three GBAs in 16:9 fit in a frame on this PC,
+with about 2-3 ms to spare in a stage; the two programs together cost about
+1.8 ms per frame and pushed a quarter of the frames late. Which of them
+costs what was not measured apart.
+
 Not explained: one 150 ms frame in one warm run, with no part of it
 measured as slow; it did not happen again. Link's shadow, reported as
 flickering, is the game's own: its sprite (16×8, tile 769) is in OAM only
