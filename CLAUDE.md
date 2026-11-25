@@ -9,6 +9,7 @@ Goals and design: `docs/DESIGN.md`. Milestones, pending and unverified items: `P
 - The maintainer (Jyhsus) writes in Spanish; reply in Spanish.
 - Public docs (README, `docs/`, `patches/`, `PROGRESS`) are English-first with Spanish mirrors (`*.es.md`). Keep both in sync.
 - CLAUDE.md and `.claude/skills/` are for agents: English, no mirror.
+- Session flow: `/session-start [goal]` (read-only briefing) and `/session-end` (writes the gitignored `.claude/HANDOFF.local.md`). Manual only; they never commit or push.
 - Keep this file short. Put new findings in their home (table below), dated, saying what was verified and what was not. Never drop warnings, unverified results, pending issues or check dates when moving or editing docs. If documents disagree, keep both figures and flag it; do not assume one wins.
 
 ## Hard rules

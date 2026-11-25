@@ -60,3 +60,6 @@ keybinds.ini
 Thumbs.db
 __pycache__/
 *.pyc
+
+# Local session handoff
+/.claude/HANDOFF.local.md
