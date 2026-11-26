@@ -3,7 +3,7 @@ name: fsr-reviewer
 description: Independent review of significant FourSwordsRecomp changes for correctness, regressions, requirements and project rules.
 model: sonnet
 tools: Read, Grep, Glob
-maxTurns: 10
+maxTurns: 15
 ---
 
 # Role

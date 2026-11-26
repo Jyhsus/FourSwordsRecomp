@@ -3,7 +3,7 @@ name: fsr-scout
 description: Read-only project exploration, targeted file searches, documentation research and evidence collection for FourSwordsRecomp.
 model: haiku
 tools: Read, Grep, Glob
-maxTurns: 6
+maxTurns: 10
 ---
 
 # Role
