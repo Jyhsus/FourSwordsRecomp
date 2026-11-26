@@ -587,6 +587,75 @@ desarrollo no tenía ningún mando conectado). El arreglo no depende de ella:
 * Las partidas y los invitados van por número de jugador; elegir mandos nunca
   los cambia.
 
+**Opciones que se conservan entre ejecuciones (25 nov 2026).** Al pulsar
+**Start** en la página Local se escriben el número de jugadores, el mando de
+cada jugador, quién tiene el teclado, la escala entera y la vista 16:9 en
+`fsr_local_settings.ini`, junto al ejecutable. Los cambios que se abandonan sin
+pulsar Start no se escriben, y las partidas que juega cada uno no se guardan.
+`src/fs_prefs.cpp`:
+
+* Prioridad: argumento de la línea de órdenes (`--local-scale`,
+  `--local-keyboard`, `--local-view`), después el archivo y después el valor
+  por defecto. Start escribe lo que muestra la página, incluido un valor puesto
+  por un argumento.
+* `--local` nunca lee ni escribe el archivo, así que sus ejecuciones con guion
+  y sus repeticiones no dependen de él. Tampoco las ejecuciones con `--slot` o
+  con un argumento de guion (`--frames`, `--no-window`, `--rom` y similares).
+  Una sesión netplay no escribe nada, pero si se inicia sin esos argumentos sí
+  lee el archivo al arrancar, sin efecto en la sesión.
+* Si falta el archivo o una clave, o un valor no es válido, vale el de por
+  defecto. Dos jugadores con el mismo mando restablecen los cuatro; un teclado
+  asignado a un jugador que no participa vuelve al jugador 1. Si falla la
+  escritura, solo se avisa por stderr y el juego arranca. Borrar el archivo
+  restaura los valores por defecto.
+* **Limitación:** un mando se guarda como su posición en la lista
+  ("Controller N", 1–16), no como un aparato. Si en la siguiente ejecución
+  cambian las luces de jugador o el orden de conexión (más probable sin luz de
+  jugador o con dos mandos del mismo modelo), un jugador recibe otro mando:
+  comprueba los nombres y el indicador "pressed" antes de Start. Una posición
+  sin nada conectado muestra "not connected" y ese puesto queda en espera.
+* Otros límites, vistos al leer el código en la revisión (25 nov 2026, sin
+  ejecutar):
+  * Una posición guardada sin nada puede dejar sin usar un mando conectado: con
+    el jugador 1 en "Controller 2" y un solo mando, ese mando se ignora toda la
+    sesión si ningún jugador que participa tiene la posición 1, y el jugador 1
+    espera otro. Un primer arranque con los valores por defecto se lo da al
+    jugador 1. Reasígnalo en la página antes de Start.
+  * Bajar el número de jugadores por debajo del que tiene el teclado, o un
+    `--local-keyboard` que lo supere, hace que la página deje el teclado sin
+    nadie (como antes), y ahora Start lo conserva. Al leer el archivo es
+    distinto: vuelve al jugador 1.
+  * Si se arranca solo por su nombre a través de `PATH`, el programa toma el
+    directorio actual como carpeta del archivo, como hace el launcher con
+    `config.ini`.
+* Comprobado (25 nov 2026): `tests/fs_prefs_test.cpp`;
+  `tests/fs_pads_test.cpp` (un plan leído del archivo, con mandos virtuales de
+  SDL); el ejecutable con `--local guest,guest --frames 120`: un archivo con
+  otros valores no se leyó (el registro de la sesión mostró los valores por
+  defecto) y quedó sin cambios, los argumentos se aplicaron y no apareció
+  ningún archivo cuando no lo había; dos ejecuciones de 60 frames con
+  `--no-window` y sin `--local` dejaron el archivo sin cambios y no crearon
+  ninguno.
+* Pruebas manuales del mantenedor (25 nov 2026): el flujo con ventana desde el
+  launcher, dos invitados y como máximo un mando (Xbox 360).
+  * Correcto: las opciones se conservan al cerrar el programa; los cambios
+    abandonados sin Start no se guardan; los valores por defecto sin nada
+    guardado (2 jugadores, teclado en el jugador 1, escala entera desmarcada,
+    3:2); se conserva el mando elegido; conexión tardía; detección y
+    desconexión.
+  * `--local-scale fit` sobre un `integer` guardado: el primer intento se dio
+    por fallido; la repetición, con el mismo ejecutable, fue correcta (casilla
+    desmarcada, `fit` escrito tras Start). Se desconoce la causa del primer
+    resultado.
+  * El orden de conexión se dio por correcto, pero con un solo mando, que no
+    permite comprobar el orden entre varios.
+* **Sin comprobar:** varios mandos (otro orden en la siguiente ejecución, dos
+  del mismo modelo, uno guardado ausente), el indicador "pressed" (no se
+  informó por separado), un reinicio del equipo, y `--local-keyboard` y
+  `--local-view` en el flujo del launcher. Ninguna prueba cubre el uso del
+  módulo en `src/main.cpp` (archivo antes que argumentos, guardado con Start),
+  ni que un archivo anterior sobreviva a una escritura fallida.
+
 **Distribución de la ventana y escalado (16 nov 2026).** `src/fs_layout.h`,
 comprobado por `tests/fs_layout_test.cpp`. Todas las vistas tienen el mismo
 tamaño y la proporción del original (3:2), y van juntas en el centro de la
@@ -859,15 +928,18 @@ GBA; es presentación, sin probar a otras frecuencias.
 * El flujo con ventana (launcher → partidas → Multiplayer → Local) está
   compilado y sus piezas se han ejecutado, pero nadie lo ha recorrido aún con
   clics, y la elección de mandos nueva no se ha probado con mandos reales
-  (orden, indicador "pressed", desconectar y volver a conectar).
+  (orden, indicador "pressed", desconectar y volver a conectar). Actualización
+  (25 nov 2026): el mantenedor lo recorrió con dos invitados y un mando; lo que
+  fue correcto y lo que sigue sin probar está arriba.
 * Una partida real con cuatro personas, y cualquier cosa más allá del
   tutorial con dos o tres.
 * El juego en línea (`multiplayer_runner.cpp`, upstream) nunca escribe el
   `.sav` de un jugador, solo checkpoints de la pareja, así que el progreso en
   línea se pierde. El arreglo es el mismo que aquí, en el motor (un PR
   upstream).
-* Lo elegido en la página Local (mandos, teclado, escala) dura hasta cerrar
-  el programa; no se guarda en un archivo de ajustes.
+* Lo elegido en la página Local se conserva entre ejecuciones (arriba), los
+  mandos solo por posición; con mandos reales se ha probado con uno como
+  máximo.
 * Los botones del mando son fijos (la disposición estándar de SDL); solo el
   teclado sigue a `keybinds.ini`.
 

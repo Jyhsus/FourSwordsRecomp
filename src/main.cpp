@@ -10,7 +10,8 @@
 // before any game code runs. Windowed play opens the recomp-ui launcher first,
 // then the file screen (src/fs_slots_ui.cpp); quitting Four Swords comes back
 // to the launcher (docs/DESIGN.md section 8.1). The file screen's Multiplayer
-// button starts local split-screen play (src/fs_local.cpp, section 10).
+// button starts local split-screen play (src/fs_local.cpp, section 10); what
+// is chosen on its Local page is kept between runs (src/fs_prefs.h).
 
 #include <algorithm>
 #include <array>
@@ -32,6 +33,7 @@
 #endif
 #if defined(GBAGAME_RECOMP_UI)
 #include "game_launcher_boot.h"
+#include "fs_prefs.h"
 #include "fs_slots_ui.h"
 #endif
 
@@ -172,7 +174,10 @@ int main(int argc, char** argv) {
                         "keyboard to a player too (default 1). --local-scale integer\n"
                         "keeps whole-number pixels; fit (default) fills the window.\n"
                         "--local-view 16:9 shows more of the stage to each side\n"
-                        "(experimental); 3:2 is the original picture.\n");
+                        "(experimental); 3:2 is the original picture.\n"
+                        "The file screen's Multiplayer > Local page keeps its choices in\n"
+                        "fsr_local_settings.ini next to the program; the --local-* flags\n"
+                        "override them. --local itself never reads or writes that file.\n");
             return 0;
         }
     }
@@ -215,14 +220,13 @@ int main(int argc, char** argv) {
         std::fprintf(stderr, "--local-scale needs fit or integer; --local-keyboard a player or none\n");
         return 1;
     }
-    local.integer_scale = local_scale == "integer";
     const std::string local_view = take_value_argument(args, "--local-view");
     if (!local_view.empty() && local_view != "3:2" && local_view != "16:9") {
         std::fprintf(stderr, "--local-view needs 3:2 or 16:9\n");
         return 1;
     }
-    local.wide = local_view == "16:9";
-    if (!local_keyboard.empty()) local.keyboard = local_keyboard == "none" ? -1 : local_keyboard[0] - '1';
+    const fsr::prefs::LocalFlags local_flags{local_scale, local_keyboard, local_view};
+    fsr::prefs::apply_flags(local_flags, local);
     if (local.players) {
         local.save_path = save_path_argument(args);
         std::array<fsr::save::Slot, fsr::save::kSlotCount> slots{};
@@ -267,8 +271,15 @@ int main(int argc, char** argv) {
     // player quits Four Swords. run_game() may run more than once per process.
     const bool from_launcher = slot < 0 && interactive(args);
     bool reopen_launcher = false;
-    fsr::LocalPlan last_local = local;   // controller, keyboard and scale choices
-    last_local.players = 2;
+    // The Local page's choices: the defaults, then the file kept next to the
+    // executable (fs_prefs.h), then the command line's own flags. --local
+    // above never gets here, and scripted runs leave the file alone.
+    std::error_code path_error;
+    const std::filesystem::path prefs_file =
+        std::filesystem::absolute(argv[0], path_error).parent_path() / fsr::prefs::kFileName;
+    fsr::LocalPlan last_local;
+    if (from_launcher) fsr::prefs::load(prefs_file, last_local);
+    fsr::prefs::apply_flags(local_flags, last_local);
     for (;;) {
         std::vector<std::string> run_args = args;
         if (reopen_launcher) run_args.push_back("--launcher");
@@ -287,6 +298,11 @@ int main(int argc, char** argv) {
                 // Section 10: run_game() checks the assets and window settings,
                 // then hands them to the local runner instead of single player.
                 last_local = screen.local;
+                // Kept before the game starts, so a crash does not lose them.
+                std::string prefs_error;
+                if (!fsr::prefs::save(prefs_file, last_local, &prefs_error)) {
+                    std::fprintf(stderr, "[fsr] local settings not saved: %s\n", prefs_error.c_str());
+                }
                 gbarecomp::RunOptions local_opts = opts;
                 local_opts.netplay = fsr::make_local_launch(screen.local);
                 std::vector<char*> av;

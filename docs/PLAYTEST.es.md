@@ -40,7 +40,13 @@ juego cerrado.
 - Pantalla completa: cualquiera de las dos opciones vale; en multijugador
   local siempre se usa la resolución del escritorio. También puedes jugar en
   ventana y cambiar su tamaño.
-- Play → pantalla de partidas → **Multiplayer → Local**:
+- Play → pantalla de partidas → **Multiplayer → Local** (la página se abre
+  con el número de jugadores, los mandos, el teclado, la escala y la vista que
+  se iniciaron la última vez, comprobado a mano el 25 nov 2026 con un mando
+  como máximo, así que revisa todos los ajustes; los mandos se recuerdan por su
+  puesto en la lista, no por aparato. **Los archivos no se recuerdan:** al abrir la página,
+  el jugador N recibe el N-ésimo archivo en uso y los demás entran como
+  invitados, así que comprueba el archivo de cada jugador):
   - **Players**: 2, 3 o 4.
   - Por cada jugador, un archivo o **Guest**, un **mando** y, para uno
     solo, **Keyboard**.

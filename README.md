@@ -127,7 +127,7 @@ covers toolchain problems.
 | `src/` | Game-owned code: entry point, Four Swords hooks |
 | `tools/` | `regen.ps1` / `regen.sh` — regenerate C++ from your ROM |
 | `patches/` | Local GBARecomp patches waiting for upstream (see its README) |
-| `tests/` | Host-side tests (`ctest --test-dir build -R "^fs_"`: saves, split-screen layout, controllers) and input scripts for 2-4 linked GBAs |
+| `tests/` | Host-side tests (`ctest --test-dir build -R "^fs_"`: saves, split-screen layout, local settings, controllers) and input scripts for 2-4 linked GBAs |
 | `symbols/` | Function/data names discovered during reverse engineering |
 | `generated/` | Local generated C++ (git-ignored) |
 | `docs/` | Design, roadmap, research notes, the playtest guide ([PLAYTEST.md](docs/PLAYTEST.md)) (English + Spanish) |

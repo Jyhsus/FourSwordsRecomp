@@ -557,6 +557,66 @@ controller connected). The fix does not depend on it:
 * Files and guests are indexed by player; choosing controllers never touches
   them.
 
+**Choices kept between runs (25 Nov 2026).** Pressing **Start** on the Local
+page writes the player count, each player's controller, who has the keyboard,
+the whole-number scale and the 16:9 view to `fsr_local_settings.ini`, next to
+the executable. Changes left without pressing Start are not written, and the
+files each player plays are not kept. `src/fs_prefs.cpp`:
+
+* Order: a command-line flag (`--local-scale`, `--local-keyboard`,
+  `--local-view`), then the file, then the default. Start writes what the page
+  shows, including a value a flag put there.
+* `--local` never reads or writes the file, so its scripted runs and replays
+  do not depend on it. Runs with `--slot` or a scripted flag (`--frames`,
+  `--no-window`, `--rom` and the like) do not either. A netplay session writes
+  nothing, but one started without those flags still reads the file at startup,
+  with no effect on the session.
+* A missing file, a missing key or a bad value gives the default. Two players
+  on one controller put all four back; a keyboard player beyond the player
+  count goes back to player 1. A write that fails is only reported on stderr
+  and the game starts. Deleting the file restores the defaults.
+* **Limitation:** a controller is kept as its position in the list
+  ("Controller N", 1–16), not as a device. If player lights or connection order
+  differ on the next run (more likely without a player light, or with two pads
+  of one model), a player gets another controller: check the names and the
+  "pressed" marker before Start. A position with nothing connected shows "not
+  connected", and that player's place waits.
+* Further limits, from reading the code in review (25 Nov 2026, not run):
+  * A saved position with nothing there can leave a connected controller
+    unused: with player 1 on "Controller 2" and one pad connected, that pad is
+    ignored for the session if no playing player has position 1, and player 1
+    waits for another one. A first start with the defaults gives it to player
+    1. Reassign on the page before Start.
+  * Lowering the player count below the keyboard's player, or a
+    `--local-keyboard` beyond it, makes the page set the keyboard to nobody
+    (as it did before), and Start now keeps that. Reading the file differs: it
+    goes back to player 1.
+  * Started by bare name through `PATH`, the program takes the current
+    directory for the file's, as the launcher does for `config.ini`.
+* Checked (25 Nov 2026): `tests/fs_prefs_test.cpp`; `tests/fs_pads_test.cpp`
+  (a plan read from the file, SDL virtual controllers); the executable with
+  `--local guest,guest --frames 120`: a file with other values was not read
+  (the session log showed the defaults) and stayed unchanged, the flags
+  applied, and no file appeared when there was none; two 60-frame
+  `--no-window` runs without `--local` left the file unchanged and created
+  none.
+* Manual checks by the maintainer (25 Nov 2026): the windowed launcher flow,
+  two guests, at most one controller (Xbox 360).
+  * Passed: choices kept after closing the program; changes left without Start
+    not kept; the defaults with no saved choice (2 players, keyboard on player
+    1, whole-number scale off, 3:2); the controller choice kept; late
+    connection; detection and disconnection.
+  * `--local-scale fit` over a saved `integer`: the first try was reported as
+    failed; the repeat, on the same executable, passed (box unchecked, `fit`
+    written after Start). The cause of the first result is unknown.
+  * Connection order was reported correct, but with one controller, which
+    cannot check the order among several.
+* **Not checked:** several controllers (another order on the next run, two of
+  one model, a saved one absent), the "pressed" marker (not reported on its
+  own), a computer restart, and `--local-keyboard` and `--local-view` in the
+  launcher flow. No test covers `src/main.cpp`'s use of the module (file before
+  flags, saving on Start), nor that an older file survives a failed write.
+
 **Window layout and scaling (16 Nov 2026).** `src/fs_layout.h`, checked by
 `tests/fs_layout_test.cpp`. All views have the same size and the source's
 aspect (3:2), and sit together in the middle of the window:
@@ -811,14 +871,16 @@ rates.
 * The windowed flow (launcher → files → Multiplayer → Local) is built and its
   parts were run, but nobody has clicked through it yet, and the new
   controller choices have not been tried with real controllers (order,
-  "pressed" marker, unplugging and plugging back).
+  "pressed" marker, unplugging and plugging back). Update (25 Nov 2026): the
+  maintainer clicked through it with two guests and one controller; what passed
+  and what is still untried is listed above.
 * A real game with four people, and anything past the tutorial with two or
   three.
 * Online play (`multiplayer_runner.cpp` upstream) never writes a player's
   `.sav`, only paired checkpoints, so progress made online is lost. The fix is
   the same as here, in the engine (an upstream PR).
-* The Local page's choices (controllers, keyboard, scale) last until the
-  program closes; they are not written to a settings file.
+* The Local page's choices are kept between runs (above), controllers by
+  position only; with real controllers it has been tried with one at most.
 * Controller buttons are fixed (SDL's standard layout); only the keyboard
   follows `keybinds.ini`.
 

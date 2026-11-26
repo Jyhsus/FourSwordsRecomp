@@ -174,7 +174,7 @@ if(GBAGAME_RECOMP_UI)
     endif()
     target_link_libraries(FourSwordsRecomp PRIVATE game_launcher_ui)
     # Local split-screen multiplayer (section 10): SDL controllers + HostWindow.
-    target_sources(FourSwordsRecomp PRIVATE src/fs_local.cpp src/fs_pads.cpp)
+    target_sources(FourSwordsRecomp PRIVATE src/fs_local.cpp src/fs_pads.cpp src/fs_prefs.cpp)
     set_property(SOURCE src/main.cpp APPEND PROPERTY
         COMPILE_DEFINITIONS GBAGAME_RECOMP_UI)
 endif()
@@ -189,9 +189,13 @@ if(BUILD_TESTING)
     add_executable(fs_layout_test tests/fs_layout_test.cpp)
     target_include_directories(fs_layout_test PRIVATE src)
     add_test(NAME fs_layout COMMAND fs_layout_test)
+    # Local page settings file: ctest --test-dir build -R fs_prefs
+    add_executable(fs_prefs_test tests/fs_prefs_test.cpp src/fs_prefs.cpp)
+    target_include_directories(fs_prefs_test PRIVATE src)
+    add_test(NAME fs_prefs COMMAND fs_prefs_test)
     # Controller assignment, with SDL virtual controllers: ctest --test-dir build -R fs_pads
     if(GBAGAME_RECOMP_UI)
-        add_executable(fs_pads_test tests/fs_pads_test.cpp src/fs_pads.cpp)
+        add_executable(fs_pads_test tests/fs_pads_test.cpp src/fs_pads.cpp src/fs_prefs.cpp)
         target_include_directories(fs_pads_test PRIVATE src)
         target_link_libraries(fs_pads_test PRIVATE SDL2::SDL2)
         add_test(NAME fs_pads COMMAND fs_pads_test)

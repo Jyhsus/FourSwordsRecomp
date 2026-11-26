@@ -38,7 +38,12 @@ If something goes wrong with saving, put the copy back with the game closed.
   simulate GBA screens and change the colours on purpose).
 - Fullscreen: either option works; local multiplayer always uses the desktop
   resolution. You can also play in a window and resize it.
-- Play → file screen → **Multiplayer → Local**:
+- Play → file screen → **Multiplayer → Local** (the page opens with the
+  player count, controllers, keyboard, scale and view last started, checked by
+  hand on 25 Nov 2026 with one controller at most, so check every setting;
+  controllers are remembered by their place in the list, not by device. **Files are not remembered:** opening
+  the page gives player N the N-th file in use and makes the others guests, so
+  check each player's file):
   - **Players**: 2, 3 or 4.
   - For each player, a file or **Guest**, a **controller** and, for one of
     them only, **Keyboard**.

@@ -9,11 +9,14 @@
 #include <SDL.h>
 
 #include <cstdio>
+#include <filesystem>
 #include <set>
 #include <string>
+#include <system_error>
 #include <vector>
 
 #include "fs_pads.h"
+#include "fs_prefs.h"
 
 namespace {
 
@@ -224,6 +227,40 @@ void plan_without_pad_waits() {
     detach(a); detach(b);
 }
 
+// The plan kept between runs (fs_prefs.h) names positions, so after a restart
+// each player gets whatever is at that position, and a position with nothing
+// there waits.
+void plan_from_settings_file() {
+    const std::filesystem::path file =
+        std::filesystem::temp_directory_path() /
+        ("fs_pads_test_" + std::to_string(SDL_GetPerformanceCounter()) + ".ini");
+    fsr::LocalPlan saved;
+    saved.players = 3;
+    saved.pad = {1, 0, 2, fsr::kNoPad};
+    CHECK(fsr::prefs::save(file, saved));
+    fsr::LocalPlan plan;
+    fsr::prefs::load(file, plan);
+    std::error_code ec;
+    std::filesystem::remove(file, ec);
+
+    // Only two controllers this time; connected anew, with new instance IDs.
+    Virtual a = attach("Pad A", 1), b = attach("Pad B", 2);
+    const auto pads = fsr::local_pads();
+    CHECK(pads.size() == 2);
+    if (pads.size() == 2) {
+        fsr::PadSeats seats(plan.pad, static_cast<unsigned>(plan.players), {});
+        CHECK(seats.instance(0) == pads[1].instance);
+        CHECK(seats.instance(1) == pads[0].instance);
+        CHECK(seats.instance(2) < 0 && seats.missing() < 0);
+        Virtual c = attach("Pad C", 3);
+        frames(seats, kScan);
+        CHECK(seats.instance(2) == c.instance);
+        CHECK(no_device_twice(seats, 3));
+        detach(c);
+    }
+    detach(a); detach(b);
+}
+
 }  // namespace
 
 int main(int, char**) {
@@ -249,6 +286,7 @@ int main(int, char**) {
     same_model_by_light();
     four_players_never_share();
     plan_without_pad_waits();
+    plan_from_settings_file();
     SDL_Quit();
     if (failures) {
         std::fprintf(stderr, "%d check(s) failed\n", failures);

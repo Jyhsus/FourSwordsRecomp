@@ -27,7 +27,7 @@ commits y tags: consulta Git. Última revisión: 25 nov 2026.
 - Enviar el parche `request_quit()` a upstream; los otros dos parches locales también dicen «PR pending» ([patches/README.es.md](patches/README.es.md)). Comprobar la salida real con dos GBA (DESIGN §8.1).
 - Causa raíz de la diferencia de tiempo del cable (ajuste de 5.243 ciclos, parche 0002) y la misma comprobación con netplay real (DESIGN §9).
 - El juego online nunca escribe el `.sav` del jugador (runner upstream); el progreso hecho online se pierde (DESIGN §10).
-- Las opciones de la página Local (mandos, teclado, escala) no se guardan; los botones del mando son fijos, según la disposición estándar de SDL (DESIGN §10).
+- Los botones del mando son fijos, según la disposición estándar de SDL. La página Local conserva el mando de cada jugador entre ejecuciones por posición, no por aparato (DESIGN §10).
 - Iris de entrada de área en 16:9: los márgenes se abren fila a fila; alternativas sin elegir (DESIGN §11).
 - Panorámico: un sprite de 64 píxeles de ancho puede aparecer tarde por la izquierda; se desconoce si el juego crea o elimina objetos por distancia dentro de los márgenes (DESIGN §11).
 
@@ -38,12 +38,15 @@ commits y tags: consulta Git. Última revisión: 25 nov 2026.
 - La cobertura estática de los caminos de Four Swords no está completa: las sesiones enlazadas no tienen respaldo del intérprete y un probador encontró una entrada ausente (`0x08009A08`); no está demostrado que no queden otras (DESIGN §10).
 - Colores deslavados y sprites parpadeantes comunicados por un probador: no reproducidos, sin comparación con una referencia. El valor por defecto de `game.toml` es `screen = "raw"` desde el 16 nov 2026 (era `"frontlit"`); no se ha demostrado que sea la causa (DESIGN §10).
 - Problemas del motor (upstream) vistos: overlays gcc del self-heal que fallan (`g_runtime_resume_pc`), `terminate called without an active exception` al final de ejecuciones con ventana y `--frames`, y el buscador de tablas de salto que las sobredimensiona ([skill debug-project](.claude/skills/debug-project/SKILL.md), DESIGN §2).
+- Prioridad de argumentos en la página Local (25 nov 2026): un intento manual de `--local-scale fit` sobre un `integer` guardado se dio por fallido; la repetición con el mismo ejecutable fue correcta. No reproducido, causa desconocida (DESIGN §10).
+- El programa aborta al arrancar si su carpeta tiene caracteres no ASCII (`std::filesystem_error`, «Cannot convert character sequence»; 25 nov 2026). Visto con una carpeta con «ñ», con `--no-window` y con `--local`, en la compilación de `792d4da` y en la actual. No se ha localizado la llamada que falla ni se ha probado el arranque con launcher. `src/main.cpp` también construye una ruta desde `argv[0]` (archivo de ajustes), así que el arreglo debe cubrirla; esa línea añade otro punto de fallo, sin regresión observada. Pistas de la revisión, sin verificar: la llamada que falla puede estar en `gbarecomp/src/runtime/asset_picker.cpp` (hacia la línea 29), el arranque con launcher probablemente falle también, y `SDL_GetBasePath()` (UTF-8) podría sustituir a `argv[0]` en `src/main.cpp`.
 
 ## Sin verificar
 
 - La fusión en el `.sav` de escrituras reales de EEPROM: ninguna ejecución automática hizo que el juego escribiera su EEPROM, ni tras un jefe (DESIGN §10, [PLAYTEST](docs/PLAYTEST.es.md) §3 F).
-- Mandos reales: orden, marca «pulsado», desconectar y volver a conectar; no había ningún mando conectado en la máquina de desarrollo (DESIGN §10).
-- El flujo con ventana pulsado de punta a punta (launcher → archivos → Multijugador → Local) y una partida real de cuatro personas (DESIGN §10).
+- Mandos reales: orden entre varios, dos del mismo modelo, uno guardado ausente, marca «pulsado». Con un mando de Xbox 360 (25 nov 2026, manual) fueron correctas la detección, la desconexión y la conexión tardía; antes no se había conectado ninguno en la máquina de desarrollo (DESIGN §10).
+- Una partida real de cuatro personas, y el flujo con ventana con jugadores en archivos guardados: launcher → archivos → Multijugador → Local se recorrió el 25 nov 2026 con dos invitados (DESIGN §10).
+- Ajustes de la página Local conservados entre ejecuciones: las pruebas manuales fueron correctas el 25 nov 2026 (sobre la prioridad de argumentos, ver Problemas conocidos). Sin comprobar: las posiciones con varios mandos, un reinicio del equipo, `--local-keyboard` y `--local-view` en el flujo del launcher; ninguna prueba cubre la conexión en `src/main.cpp` ni que un archivo anterior sobreviva a una escritura fallida. Los límites vistos en la revisión, sin ejecutar, están en DESIGN §10.
 - La explicación del orden de mandos de los probadores (orden de dispositivos distinto de las luces de jugador) es la causa probable, no confirmada (DESIGN §10).
 - Panorámico: un combate contra jefe, una fase terminada jugando, un HUD con más corazones o más rupias, juego con personas, máquinas más lentas; no se ha visto el mensaje «P1 is down!» (DESIGN §11).
 - El parpadeo de la sombra de Link en un monitor de 144 Hz y los modos de escritorio de 60/120 Hz: sin probar (DESIGN §10, [PLAYTEST](docs/PLAYTEST.es.md) §7).

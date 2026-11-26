@@ -27,7 +27,7 @@ commits and tags: ask Git. Last reviewed: 25 Nov 2026.
 - Send the `request_quit()` patch upstream; the other two local patches also say "PR pending" ([patches/README.md](patches/README.md)). Check the real quit with two GBAs (DESIGN §8.1).
 - Root cause of the cable timing gap (5,243-cycle override, patch 0002), and the same check over real netplay (DESIGN §9).
 - Online play never writes a player's `.sav` (upstream runner); progress made online is lost (DESIGN §10).
-- Local page choices (controllers, keyboard, scale) are not stored; controller buttons are fixed to SDL's standard layout (DESIGN §10).
+- Controller buttons are fixed to SDL's standard layout. The Local page keeps each player's controller between runs by position, not by device (DESIGN §10).
 - Area-entry iris in 16:9: margins open row by row; alternatives not chosen (DESIGN §11).
 - Widescreen: a sprite 64 pixels wide may appear late on the left; whether the game creates or removes objects by distance inside the margins is unknown (DESIGN §11).
 
@@ -38,12 +38,15 @@ commits and tags: ask Git. Last reviewed: 25 Nov 2026.
 - Static coverage of Four Swords paths is not complete: linked sessions have no interpreter fallback, and one missing entry was found by a tester (`0x08009A08`); that no others remain is not proven (DESIGN §10).
 - Washed-out colours and flickering sprites reported by a tester: not reproduced, no reference comparison done. `game.toml` default is `screen = "raw"` since 16 Nov 2026 (it was `"frontlit"`); not shown to be the cause (DESIGN §10).
 - Upstream engine issues seen: self-heal gcc overlays failing (`g_runtime_resume_pc`), `terminate called without an active exception` at the end of windowed `--frames` runs, the jump-table finder over-sizing tables ([debug-project skill](.claude/skills/debug-project/SKILL.md), DESIGN §2).
+- Local page argument priority (25 Nov 2026): one manual try of `--local-scale fit` over a saved `integer` was reported as failed; the repeat on the same executable passed. Not reproduced, cause unknown (DESIGN §10).
+- The program aborts at startup when its folder has non-ASCII characters (`std::filesystem_error`, "Cannot convert character sequence"; 25 Nov 2026). Seen with a folder named with "ñ", `--no-window` and `--local`, in the build of `792d4da` and in the current one. The failing call is not located and the launcher start was not tried. `src/main.cpp` also builds a path from `argv[0]` (settings file), so a fix must cover it; that line adds one more failing point, with no regression observed. Unverified leads from review: `gbarecomp/src/runtime/asset_picker.cpp` (about line 29) may be the failing call, the launcher start probably fails too, and `SDL_GetBasePath()` (UTF-8) could replace `argv[0]` in `src/main.cpp`.
 
 ## Unverified
 
 - Merge of the game's real EEPROM writes into the `.sav`: no automated run made the game write its EEPROM, not even after a boss (DESIGN §10, [PLAYTEST](docs/PLAYTEST.md) §3 F).
-- Real controllers: order, the "pressed" marker, unplug and plug back; no controller was connected on the development machine (DESIGN §10).
-- The clicked-through windowed flow launcher → files → Multiplayer → Local, and a real four-person game (DESIGN §10).
+- Real controllers: order among several, two of one model, a saved one absent, the "pressed" marker. With one Xbox 360 controller (25 Nov 2026, manual) detection, disconnection and late connection passed; before that none had been connected on the development machine (DESIGN §10).
+- A real four-person game, and the windowed flow with players on saved files: launcher → files → Multiplayer → Local was clicked through on 25 Nov 2026 with two guests (DESIGN §10).
+- Local page settings kept between runs: manual checks passed on 25 Nov 2026 (see Known problems for argument priority). Not checked: controller positions with several controllers, a computer restart, `--local-keyboard` and `--local-view` in the launcher flow; no test covers the wiring in `src/main.cpp` or an older file surviving a failed write. Limits seen in review, not run, are listed in DESIGN §10.
 - The testers' controller-order explanation (device order differing from the pads' player lights) is the likely cause, not confirmed (DESIGN §10).
 - Widescreen: a boss fight, a stage finished by play, a HUD with more hearts or a longer rupee count, play with people, slower machines; "P1 is down!" not seen (DESIGN §11).
 - Link's shadow blink on a 144 Hz monitor, and 60/120 Hz desktop modes: untested (DESIGN §10, [PLAYTEST](docs/PLAYTEST.md) §7).
